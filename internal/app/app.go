@@ -12,28 +12,33 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/boidushya/composer-bridge/internal/activity"
-	"github.com/boidushya/composer-bridge/internal/autostart"
-	"github.com/boidushya/composer-bridge/internal/config"
-	"github.com/boidushya/composer-bridge/internal/library"
-	"github.com/boidushya/composer-bridge/internal/ytdlp"
+	"github.com/better-lyrics/composer-bridge/internal/activity"
+	"github.com/better-lyrics/composer-bridge/internal/autostart"
+	"github.com/better-lyrics/composer-bridge/internal/config"
+	"github.com/better-lyrics/composer-bridge/internal/library"
+	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
 )
 
 // App wires the bridge's storage and config into Wails-callable methods.
+// Wails dispatches JS calls on separate goroutines, so any field a method both
+// reads and writes needs mutex protection. mu guards cfg, downloadDir, and
+// ytdlpPath; everything else is set once in New and never mutated.
 type App struct {
-	library   *library.Library
-	activity  *activity.Log
-	cfg       config.Config
-	cfgPath   string
-	dataDir   string
-	ytdlpPath string
-	thumbDir  string
+	library     *library.Library
+	activity    *activity.Log
+	cfgPath     string
+	dataDir     string
+	thumbDir    string
+	logPath     string
+	version     string
+	ctx         context.Context
+	mu          sync.RWMutex
+	cfg         config.Config
 	downloadDir string
-	logPath   string
-	version   string
-	ctx       context.Context
+	ytdlpPath   string
 }
 
 // New builds an App. Caller retains ownership of lib and act: App does not close them.
@@ -89,17 +94,43 @@ func (a *App) GetTrack(videoID string) (*library.Track, error) {
 }
 
 // RemoveTrack deletes the track matching videoID and any cached audio/thumbnail on disk.
+// Paths from the library are checked against downloadDir/thumbDir before removal so
+// a corrupted DB row can't trick the bridge into deleting arbitrary files.
 func (a *App) RemoveTrack(videoID string) error {
 	track, err := a.library.GetTrack(videoID)
 	if err == nil && track != nil {
-		if track.AudioPath != "" {
+		a.mu.RLock()
+		downloadDir := a.downloadDir
+		a.mu.RUnlock()
+		if track.AudioPath != "" && pathIsUnder(track.AudioPath, downloadDir) {
 			_ = os.Remove(track.AudioPath)
 		}
-		if track.ThumbPath != "" {
+		if track.ThumbPath != "" && pathIsUnder(track.ThumbPath, a.thumbDir) {
 			_ = os.Remove(track.ThumbPath)
 		}
 	}
 	return a.library.RemoveTrack(videoID)
+}
+
+// pathIsUnder reports whether path resolves to a location inside root. Both are
+// cleaned via filepath.Abs before comparison; empty root rejects everything.
+func pathIsUnder(path, root string) bool {
+	if root == "" {
+		return false
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // RecentActivity returns the most recent activity rows, newest first.
@@ -116,6 +147,8 @@ func (a *App) RecentActivity(limit int) ([]activity.Entry, error) {
 
 // GetConfig returns the in-memory copy of the bridge config.
 func (a *App) GetConfig() config.Config {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.cfg
 }
 
@@ -127,13 +160,16 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	if err := config.Save(a.cfgPath, cfg); err != nil {
 		return err
 	}
-	if cfg.OpenAtLogin != a.cfg.OpenAtLogin {
+	a.mu.Lock()
+	prevOpenAtLogin := a.cfg.OpenAtLogin
+	a.cfg = cfg
+	a.downloadDir = resolveDownloadDir(cfg.DownloadDir)
+	a.mu.Unlock()
+	if cfg.OpenAtLogin != prevOpenAtLogin {
 		if err := autostart.SetEnabled(cfg.OpenAtLogin, currentExecPath()); err != nil {
 			return fmt.Errorf("apply open-at-login: %w", err)
 		}
 	}
-	a.cfg = cfg
-	a.downloadDir = resolveDownloadDir(cfg.DownloadDir)
 	return nil
 }
 
@@ -192,10 +228,13 @@ func (a *App) BridgeVersion() string {
 
 // YtdlpVersion returns the version string of the bundled yt-dlp binary, or "unknown".
 func (a *App) YtdlpVersion() string {
-	if a.ytdlpPath == "" {
+	a.mu.RLock()
+	path := a.ytdlpPath
+	a.mu.RUnlock()
+	if path == "" {
 		return "unknown"
 	}
-	return ytdlp.Version(a.ytdlpPath)
+	return ytdlp.Version(path)
 }
 
 // LibrarySize returns the total on-disk audio size in bytes across all imported tracks.
@@ -235,14 +274,19 @@ func (a *App) ThumbCacheSize() (int64, error) {
 // ForceYtdlpUpdate re-downloads the yt-dlp binary unconditionally. Returns the
 // version string of the freshly-installed binary.
 func (a *App) ForceYtdlpUpdate() (string, error) {
-	if a.ytdlpPath != "" {
-		_ = os.Remove(a.ytdlpPath)
+	a.mu.RLock()
+	prev := a.ytdlpPath
+	a.mu.RUnlock()
+	if prev != "" {
+		_ = os.Remove(prev)
 	}
 	path, err := ytdlp.Ensure(a.dataDir)
 	if err != nil {
 		return "", err
 	}
+	a.mu.Lock()
 	a.ytdlpPath = path
+	a.mu.Unlock()
 	return ytdlp.Version(path), nil
 }
 
@@ -254,22 +298,26 @@ func (a *App) DownloadAudio(videoID string) (*library.Track, error) {
 	if err != nil {
 		return nil, err
 	}
-	if a.downloadDir == "" {
+	a.mu.RLock()
+	downloadDir := a.downloadDir
+	ytdlpPath := a.ytdlpPath
+	format := a.cfg.AudioFormat
+	a.mu.RUnlock()
+	if downloadDir == "" {
 		return nil, fmt.Errorf("download directory is not configured")
 	}
-	if err := os.MkdirAll(a.downloadDir, 0o755); err != nil {
+	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create download dir: %w", err)
 	}
-	format := a.cfg.AudioFormat
 	if format == "" {
 		format = "opus"
 	}
 	ext := ytdlp.FormatExtension(format)
-	dest := filepath.Join(a.downloadDir, sanitizeFilename(track.Title)+"."+ext)
+	dest := filepath.Join(downloadDir, sanitizeFilename(track.Title)+"."+ext)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	actID := a.startActivity(activity.KindAudioDownload, videoID)
-	size, err := ytdlp.DownloadToFile(ctx, a.ytdlpPath, videoID, format, dest)
+	size, err := ytdlp.DownloadToFile(ctx, ytdlpPath, videoID, format, dest)
 	if err != nil {
 		a.endActivity(actID, activity.StatusError, err.Error())
 		return nil, err
@@ -292,6 +340,10 @@ func (a *App) OpenLogFile() string {
 // bridge version, yt-dlp version, platform, config (with secrets stripped), and
 // the last ~20 activity rows.
 func (a *App) BuildDiagnosticReport() (string, error) {
+	a.mu.RLock()
+	cfg := a.cfg
+	downloadDir := a.downloadDir
+	a.mu.RUnlock()
 	var b strings.Builder
 	fmt.Fprintf(&b, "Composer Bridge diagnostics\n")
 	fmt.Fprintf(&b, "===========================\n")
@@ -300,16 +352,16 @@ func (a *App) BuildDiagnosticReport() (string, error) {
 	fmt.Fprintf(&b, "platform:       %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	fmt.Fprintf(&b, "data dir:       %s\n", a.dataDir)
 	fmt.Fprintf(&b, "thumb dir:      %s\n", a.thumbDir)
-	fmt.Fprintf(&b, "download dir:   %s\n", a.downloadDir)
+	fmt.Fprintf(&b, "download dir:   %s\n", downloadDir)
 	fmt.Fprintf(&b, "log file:       %s\n", a.logPath)
 	fmt.Fprintf(&b, "\nConfig:\n")
-	fmt.Fprintf(&b, "  listen_port:      %d\n", a.cfg.ListenPort)
-	fmt.Fprintf(&b, "  audio_format:     %s\n", a.cfg.AudioFormat)
-	fmt.Fprintf(&b, "  audio_quality:    %s\n", a.cfg.AudioQuality)
-	fmt.Fprintf(&b, "  max_concurrent:   %d\n", a.cfg.MaxConcurrent)
-	fmt.Fprintf(&b, "  log_level:        %s\n", a.cfg.LogLevel)
-	fmt.Fprintf(&b, "  ytdlp_channel:    %s\n", a.cfg.YtdlpChannel)
-	fmt.Fprintf(&b, "  allowed_origins:  %s\n", strings.Join(a.cfg.AllowedOrigins, ", "))
+	fmt.Fprintf(&b, "  listen_port:      %d\n", cfg.ListenPort)
+	fmt.Fprintf(&b, "  audio_format:     %s\n", cfg.AudioFormat)
+	fmt.Fprintf(&b, "  audio_quality:    %s\n", cfg.AudioQuality)
+	fmt.Fprintf(&b, "  max_concurrent:   %d\n", cfg.MaxConcurrent)
+	fmt.Fprintf(&b, "  log_level:        %s\n", cfg.LogLevel)
+	fmt.Fprintf(&b, "  ytdlp_channel:    %s\n", cfg.YtdlpChannel)
+	fmt.Fprintf(&b, "  allowed_origins:  %s\n", strings.Join(cfg.AllowedOrigins, ", "))
 
 	entries, err := a.activity.Recent(20)
 	if err == nil {

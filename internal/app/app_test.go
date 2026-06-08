@@ -3,14 +3,15 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/boidushya/composer-bridge/internal/activity"
-	"github.com/boidushya/composer-bridge/internal/config"
-	"github.com/boidushya/composer-bridge/internal/library"
+	"github.com/better-lyrics/composer-bridge/internal/activity"
+	"github.com/better-lyrics/composer-bridge/internal/config"
+	"github.com/better-lyrics/composer-bridge/internal/library"
 )
 
 func newTestApp(t *testing.T) (*App, *library.Library, *activity.Log, string) {
@@ -131,6 +132,34 @@ func TestRemoveTrack_MissingReturnsErrNotFound(t *testing.T) {
 	err := a.RemoveTrack("missingvideoid")
 	if !errors.Is(err, library.ErrNotFound) {
 		t.Errorf("RemoveTrack missing: got %v, want library.ErrNotFound", err)
+	}
+}
+
+func TestRemoveTrack_DoesNotDeleteFilesOutsideConfiguredDirs(t *testing.T) {
+	a, lib, _, _ := newTestApp(t)
+	outsideDir := t.TempDir()
+	outsideAudio := filepath.Join(outsideDir, "definitely-not-mine.opus")
+	outsideThumb := filepath.Join(outsideDir, "definitely-not-mine.jpg")
+	if err := os.WriteFile(outsideAudio, []byte("audio"), 0o644); err != nil {
+		t.Fatalf("write outside audio: %v", err)
+	}
+	if err := os.WriteFile(outsideThumb, []byte("thumb"), 0o644); err != nil {
+		t.Fatalf("write outside thumb: %v", err)
+	}
+	track := sampleTrack("dQw4w9WgXcQ", 1000)
+	track.AudioPath = outsideAudio
+	track.ThumbPath = outsideThumb
+	if err := lib.InsertTrack(&track); err != nil {
+		t.Fatalf("InsertTrack: %v", err)
+	}
+	if err := a.RemoveTrack("dQw4w9WgXcQ"); err != nil {
+		t.Fatalf("RemoveTrack: %v", err)
+	}
+	if _, err := os.Stat(outsideAudio); err != nil {
+		t.Errorf("outside audio was deleted: %v (path-rooting check failed)", err)
+	}
+	if _, err := os.Stat(outsideThumb); err != nil {
+		t.Errorf("outside thumb was deleted: %v (path-rooting check failed)", err)
 	}
 }
 
