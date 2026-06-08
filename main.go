@@ -10,14 +10,14 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/boidushya/composer-bridge/internal/activity"
-	"github.com/boidushya/composer-bridge/internal/app"
-	"github.com/boidushya/composer-bridge/internal/config"
-	"github.com/boidushya/composer-bridge/internal/events"
-	"github.com/boidushya/composer-bridge/internal/library"
-	"github.com/boidushya/composer-bridge/internal/server"
-	"github.com/boidushya/composer-bridge/internal/updater"
-	"github.com/boidushya/composer-bridge/internal/ytdlp"
+	"github.com/better-lyrics/composer-bridge/internal/activity"
+	"github.com/better-lyrics/composer-bridge/internal/app"
+	"github.com/better-lyrics/composer-bridge/internal/config"
+	"github.com/better-lyrics/composer-bridge/internal/events"
+	"github.com/better-lyrics/composer-bridge/internal/library"
+	"github.com/better-lyrics/composer-bridge/internal/server"
+	"github.com/better-lyrics/composer-bridge/internal/updater"
+	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -88,6 +88,9 @@ func main() {
 	httpSrv := &http.Server{
 		Handler:           server.WithCORS(handlers.Router(), cfg.AllowedOrigins),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      10 * time.Minute,
+		IdleTimeout:       60 * time.Second,
 	}
 	go func() {
 		slog.Info("bridge listening", "url", fmt.Sprintf("http://localhost:%d", port.Port))

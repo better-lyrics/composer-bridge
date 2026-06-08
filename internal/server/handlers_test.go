@@ -17,8 +17,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/boidushya/composer-bridge/internal/activity"
-	"github.com/boidushya/composer-bridge/internal/library"
+	"github.com/better-lyrics/composer-bridge/internal/activity"
+	"github.com/better-lyrics/composer-bridge/internal/library"
 )
 
 // -- Test helpers ---------------------------------------------------------------
@@ -430,10 +430,38 @@ func seedTrack(t *testing.T, lib *library.Library, tr library.Track) {
 	}
 }
 
+func TestThumb_RejectsOutOfRootPathAndDoesNotServeFile(t *testing.T) {
+	env := newTestEnv(t, "/nonexistent")
+	jpegBytes := tinyJPEG(t)
+	outside := filepath.Join(t.TempDir(), "outside.jpg")
+	if err := os.WriteFile(outside, jpegBytes, 0o644); err != nil {
+		t.Fatalf("write outside: %v", err)
+	}
+	seedTrack(t, env.lib, library.Track{
+		VideoID: "RgKAFK5djSk", Title: "x", DurationSec: 10,
+		ThumbnailURL: "http://example.invalid/x.jpg", ThumbPath: outside,
+		SourceURL: "https://www.youtube.com/watch?v=RgKAFK5djSk", ImportedAt: 1,
+	})
+	resp, err := http.Get(env.server.URL + "/thumb/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		if bytes.Equal(body, jpegBytes) {
+			t.Error("path-rooting check failed: served file outside ThumbDir")
+		}
+	}
+}
+
 func TestThumb_ServesCachedFile(t *testing.T) {
 	env := newTestEnv(t, "/nonexistent")
 	jpegBytes := tinyJPEG(t)
-	cached := filepath.Join(t.TempDir(), "cached.jpg")
+	if err := os.MkdirAll(env.thumbDir, 0o755); err != nil {
+		t.Fatalf("mkdir thumbDir: %v", err)
+	}
+	cached := filepath.Join(env.thumbDir, "RgKAFK5djSk.jpg")
 	if err := os.WriteFile(cached, jpegBytes, 0o644); err != nil {
 		t.Fatalf("write cached: %v", err)
 	}

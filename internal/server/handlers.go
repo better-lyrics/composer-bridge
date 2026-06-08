@@ -11,18 +11,20 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/boidushya/composer-bridge/internal/activity"
-	"github.com/boidushya/composer-bridge/internal/events"
-	"github.com/boidushya/composer-bridge/internal/library"
-	"github.com/boidushya/composer-bridge/internal/ytdlp"
+	"github.com/better-lyrics/composer-bridge/internal/activity"
+	"github.com/better-lyrics/composer-bridge/internal/events"
+	"github.com/better-lyrics/composer-bridge/internal/library"
+	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
 )
 
 const (
 	thumbnailArtSize  = 1024
 	thumbnailMaxAge   = "public, max-age=86400"
 	thumbnailFetchTTL = 30 * time.Second
+	audioStreamTTL    = 10 * time.Minute
 )
 
 func audioContentType(format string) string {
@@ -107,7 +109,9 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	tw := &trackingWriter{rw: w}
-	err := ytdlp.StreamAudio(r.Context(), h.YtdlpPath, videoID, format, tw)
+	streamCtx, cancel := context.WithTimeout(r.Context(), audioStreamTTL)
+	defer cancel()
+	err := ytdlp.StreamAudio(streamCtx, h.YtdlpPath, videoID, format, tw)
 	if err == nil {
 		h.endActivity(actID, activity.StatusOK, "")
 		return
@@ -201,9 +205,9 @@ func (h *Handlers) Thumb(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "library read failed")
 		return
 	}
-	w.Header().Set("Cache-Control", thumbnailMaxAge)
-	if track.ThumbPath != "" {
+	if track.ThumbPath != "" && pathIsUnder(track.ThumbPath, h.ThumbDir) {
 		if _, err := os.Stat(track.ThumbPath); err == nil {
+			w.Header().Set("Cache-Control", thumbnailMaxAge)
 			http.ServeFile(w, r, track.ThumbPath)
 			return
 		}
@@ -214,7 +218,29 @@ func (h *Handlers) Thumb(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "thumb fetch failed")
 		return
 	}
+	w.Header().Set("Cache-Control", thumbnailMaxAge)
 	http.ServeFile(w, r, path)
+}
+
+// pathIsUnder reports whether path resolves to a location inside root. Both are
+// cleaned via filepath.Abs before comparison; empty root rejects everything.
+func pathIsUnder(path, root string) bool {
+	if root == "" {
+		return false
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func (h *Handlers) preflight(w http.ResponseWriter, r *http.Request) {
