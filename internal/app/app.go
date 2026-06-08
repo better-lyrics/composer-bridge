@@ -112,8 +112,10 @@ func (a *App) Ctx() context.Context {
 // only way back to the window from this state.
 func (a *App) OnBeforeClose(_ context.Context) bool {
 	if a.ctx != nil && a.hideWindow != nil {
-		tray.SetBackground()
+		// Hide the window first so TransformProcessType has no visible window
+		// holding the Dock icon up; then flip to UIElement so the icon vanishes.
 		a.hideWindow(a.ctx)
+		tray.SetBackground()
 	}
 	return true
 }

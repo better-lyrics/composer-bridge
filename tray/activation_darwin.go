@@ -4,18 +4,27 @@ package tray
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
-#cgo LDFLAGS: -framework Cocoa
+#cgo LDFLAGS: -framework Cocoa -framework ApplicationServices
 #import <Cocoa/Cocoa.h>
+#import <ApplicationServices/ApplicationServices.h>
+
+// We use TransformProcessType instead of -[NSApplication setActivationPolicy:]
+// because the Regular -> Accessory transition is unreliable on modern macOS
+// (it silently no-ops when called from a foreground app). TransformProcessType
+// is the documented Carbon Process Manager API that menubar apps (1Password
+// mini, Bartender, etc.) use to flip Dock visibility at runtime.
 
 static void trayBecomeAccessory(void) {
 	dispatch_async(dispatch_get_main_queue(), ^{
-		[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+		ProcessSerialNumber psn = { 0, kCurrentProcess };
+		TransformProcessType(&psn, kProcessTransformToUIElementApplication);
 	});
 }
 
 static void trayBecomeRegular(void) {
 	dispatch_async(dispatch_get_main_queue(), ^{
-		[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+		ProcessSerialNumber psn = { 0, kCurrentProcess };
+		TransformProcessType(&psn, kProcessTransformToForegroundApplication);
 		[NSApp activateIgnoringOtherApps:YES];
 	});
 }
