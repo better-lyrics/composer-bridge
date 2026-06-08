@@ -268,6 +268,37 @@ func TestMarkAudioDownloaded_NoOpUpdateReturnsNil(t *testing.T) {
 	}
 }
 
+func TestSetThumbPath_RoundTrip(t *testing.T) {
+	lib, _ := openTempLibrary(t)
+
+	tr := sampleTrack("dQw4w9WgXcQ", 1000)
+	tr.ThumbPath = ""
+	if err := lib.InsertTrack(&tr); err != nil {
+		t.Fatalf("InsertTrack: %v", err)
+	}
+
+	if err := lib.SetThumbPath("dQw4w9WgXcQ", "thumbs/dQw4w9WgXcQ.jpg"); err != nil {
+		t.Fatalf("SetThumbPath: %v", err)
+	}
+
+	got, err := lib.GetTrack("dQw4w9WgXcQ")
+	if err != nil {
+		t.Fatalf("GetTrack: %v", err)
+	}
+	if got.ThumbPath != "thumbs/dQw4w9WgXcQ.jpg" {
+		t.Errorf("ThumbPath: got %q, want thumbs/dQw4w9WgXcQ.jpg", got.ThumbPath)
+	}
+}
+
+func TestSetThumbPath_NotFound(t *testing.T) {
+	lib, _ := openTempLibrary(t)
+
+	err := lib.SetThumbPath("missing", "thumbs/missing.jpg")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("SetThumbPath(missing): got %v, want ErrNotFound", err)
+	}
+}
+
 func TestRemoveTrack_HappyPath(t *testing.T) {
 	lib, _ := openTempLibrary(t)
 

@@ -156,6 +156,22 @@ func (l *Library) MarkAudioDownloaded(videoID, path string, size int64) error {
 	return nil
 }
 
+// SetThumbPath records the locally cached thumbnail path for a video. Returns ErrNotFound if no track matches videoID.
+func (l *Library) SetThumbPath(videoID, path string) error {
+	res, err := l.db.Exec(`UPDATE tracks SET thumb_path = ? WHERE video_id = ?`, path, videoID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // RemoveTrack deletes the track matching videoID. Returns ErrNotFound if no row matches.
 func (l *Library) RemoveTrack(videoID string) error {
 	res, err := l.db.Exec(`DELETE FROM tracks WHERE video_id = ?`, videoID)
