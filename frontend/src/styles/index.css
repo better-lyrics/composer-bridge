@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0c0c0d;
+  --color-surface: #16161a;
+  --color-surface-elevated: #1d1d22;
+  --color-border: #2a2a31;
+  --color-text: #f0f0f0;
+  --color-text-muted: #94949c;
+  --color-bl-red: #f20c32;
+  --color-bl-red-hover: #ff264a;
+  --color-bl-red-soft: rgb(242 12 50 / 0.12);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+}
