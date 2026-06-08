@@ -7,12 +7,12 @@
   "frontend:dev:watcher": "pnpm dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "Boidushya Bhattacharya"
+    "name": "Boidushya"
   },
   "info": {
     "productName": "Composer Bridge",
-    "productVersion": "1.0.3",
-    "copyright": "Boidushya Bhattacharya",
+    "productVersion": "1.0.6",
+    "copyright": "Boidushya",
     "comments": "Local YouTube audio bridge for the Composer lyrics composer."
   }
 }

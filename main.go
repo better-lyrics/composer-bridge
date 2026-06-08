@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/better-lyrics/composer-bridge/internal/activity"
@@ -31,7 +32,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-const Version = "1.0.3"
+const Version = "1.0.6"
 
 func main() {
 	dataDir := resolveDataDir()
@@ -73,13 +74,28 @@ func main() {
 		fatal("port: %v", err)
 	}
 
+	// Cache the yt-dlp version once at startup instead of execing the binary
+	// on every /health and every Settings poll. The initial probe runs in a
+	// goroutine so a slow / hanging exec doesn't block the HTTP server from
+	// binding. RefreshDaily updates the cache on every successful upgrade.
+	var ytdlpVersionCache atomic.Pointer[string]
+	unknown := "unknown"
+	ytdlpVersionCache.Store(&unknown)
+	refreshYtdlpVersion := func() {
+		v := ytdlp.Version(ytdlpPath)
+		ytdlpVersionCache.Store(&v)
+	}
+	go refreshYtdlpVersion()
+	getYtdlpVersion := func() string { return *ytdlpVersionCache.Load() }
+
 	handlers := &server.Handlers{
-		Library:     lib,
-		Activity:    act,
-		YtdlpPath:   ytdlpPath,
-		ThumbDir:    filepath.Join(dataDir, "thumbs"),
-		Bridge:      Version,
-		AudioFormat: cfg.AudioFormat,
+		Library:      lib,
+		Activity:     act,
+		YtdlpPath:    ytdlpPath,
+		YtdlpVersion: getYtdlpVersion,
+		ThumbDir:     filepath.Join(dataDir, "thumbs"),
+		Bridge:       Version,
+		AudioFormat:  cfg.AudioFormat,
 		Emitter: events.EmitterFunc(func(ctx context.Context, name string, args ...any) {
 			if ctx == nil {
 				return
@@ -107,6 +123,7 @@ func main() {
 	})
 
 	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
+	a.SetYtdlpVersionFn(getYtdlpVersion)
 
 	if exec, err := os.Executable(); err == nil {
 		if err := autostart.Refresh(exec); err != nil {
@@ -125,8 +142,15 @@ func main() {
 		MinHeight:         540,
 		AssetServer:       &assetserver.Options{Assets: assets},
 		BackgroundColour:  &options.RGBA{R: 0x28, G: 0x29, B: 0x2c, A: 255},
-		StartHidden:       false,
-		HideWindowOnClose: true,
+		// StartHidden suppresses Wails's default makeKeyAndOrderFront so the
+		// brief ~50ms during which Wails's own AppDelegate forces the policy
+		// to Regular doesn't produce a Dock-icon flash. OnStartup then calls
+		// DockShow + WindowShow once the activation policy is settled.
+		StartHidden: true,
+		// HideWindowOnClose is false so the X button routes through
+		// OnBeforeClose instead of being intercepted by Wails's [NSApp hide:]
+		// shortcut, which doesn't drop the Dock icon and bypasses our hook.
+		HideWindowOnClose: false,
 		Mac: &mac.Options{
 			TitleBar:             mac.TitleBarHiddenInset(),
 			Appearance:           mac.NSAppearanceNameDarkAqua,
@@ -137,6 +161,7 @@ func main() {
 			UniqueId: "dev.boidu.composer-bridge.single-instance",
 			OnSecondInstanceLaunch: func(_ options.SecondInstanceData) {
 				if active := app.Active(); active != nil && active.Ctx() != nil {
+					tray.DockShow()
 					wailsRuntime.WindowShow(active.Ctx())
 				}
 			},
@@ -145,6 +170,7 @@ func main() {
 			a.Startup(ctx)
 			handlers.EmitterCtx = ctx
 			trayCtrl.BindContext(ctx)
+			trayCtrl.OnQuit(a.MarkQuitting)
 			trayCtrl.Start()
 		},
 		OnBeforeClose: a.OnBeforeClose,

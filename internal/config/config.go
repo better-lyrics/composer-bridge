@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -55,7 +57,9 @@ func Defaults() Config {
 // Load reads and decodes the config at path. A missing file returns Defaults() with a nil error.
 // On read or parse failures, Load returns full Defaults() alongside a wrapped error: callers may use the
 // returned Config as a safe fallback even when err is non-nil. Successful loads have unspecified fields
-// backfilled by mergeDefaults so callers never see zero values for required knobs.
+// backfilled by mergeDefaults so callers never see zero values for required knobs. If sanitization (origin
+// splitting) changed the parsed AllowedOrigins, the cleaned shape is written back so the on-disk file
+// migrates forward without a user-initiated save.
 func Load(path string) (Config, error) {
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -68,7 +72,14 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return Defaults(), fmt.Errorf("parse config: %w", err)
 	}
-	return mergeDefaults(cfg), nil
+	originalOrigins := append([]string(nil), cfg.AllowedOrigins...)
+	cfg = mergeDefaults(cfg)
+	if !slices.Equal(originalOrigins, cfg.AllowedOrigins) {
+		if err := Save(path, cfg); err != nil {
+			slog.Warn("rewrite cleaned config after origin migration", "err", err, "path", path)
+		}
+	}
+	return cfg, nil
 }
 
 // Save serialises cfg as indented JSON to path, creating any missing parent directories. Writes are atomic:
@@ -93,11 +104,12 @@ func Save(path string, cfg Config) error {
 	return nil
 }
 
-// splitAndCleanOrigins re-splits any allowed-origin entry that has commas baked
-// into it. This is a one-shot migration for configs written when the form input
-// used newlines: the user-typed comma list was persisted as a single
-// allowed_origins[0] string. Idempotent: comma-free entries pass through.
-func splitAndCleanOrigins(origins []string) []string {
+// SplitAndCleanOrigins re-splits any allowed-origin entry that has commas baked
+// into it. The form input is a single comma-separated string, so the frontend
+// may persist all origins as `allowed_origins[0]`. Loads call this at read
+// time and Save callers call it at write time so the on-disk shape stays a
+// clean array of separate origins. Idempotent: comma-free entries pass through.
+func SplitAndCleanOrigins(origins []string) []string {
 	if len(origins) == 0 {
 		return origins
 	}
@@ -118,7 +130,7 @@ func mergeDefaults(cfg Config) Config {
 	if cfg.ListenPort == 0 {
 		cfg.ListenPort = d.ListenPort
 	}
-	cfg.AllowedOrigins = splitAndCleanOrigins(cfg.AllowedOrigins)
+	cfg.AllowedOrigins = SplitAndCleanOrigins(cfg.AllowedOrigins)
 	if len(cfg.AllowedOrigins) == 0 {
 		cfg.AllowedOrigins = d.AllowedOrigins
 	}

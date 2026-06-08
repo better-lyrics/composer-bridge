@@ -1,6 +1,7 @@
 package ytdlp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -211,8 +212,34 @@ func downloadLatest(ctx context.Context, binPath string) error {
 	if err := downloadAsset(ctx, rel.Assets[idx].DownloadURL, binPath); err != nil {
 		return err
 	}
+	writeVersionSidecar(binPath, rel.TagName)
 	slog.Info("yt-dlp installed", "version", rel.TagName, "path", binPath)
 	return nil
+}
+
+// versionSidecarPath returns the path of the file Ensure writes alongside the
+// binary recording the version we just installed. Version() prefers this file
+// over execing the binary because the .app bundle's exec sandboxing on macOS
+// kills the spawned yt-dlp_macos process before it can print its version.
+func versionSidecarPath(binPath string) string {
+	return binPath + ".version"
+}
+
+func writeVersionSidecar(binPath, version string) {
+	if version == "" {
+		return
+	}
+	if err := os.WriteFile(versionSidecarPath(binPath), []byte(version), 0o644); err != nil {
+		slog.Warn("write yt-dlp version sidecar", "err", err)
+	}
+}
+
+func readVersionSidecar(binPath string) string {
+	raw, err := os.ReadFile(versionSidecarPath(binPath))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 func installBinary(finalPath string, body io.Reader) error {
@@ -236,15 +263,34 @@ func installBinary(finalPath string, body io.Reader) error {
 }
 
 
-// Version returns the trimmed output of `ytdlpPath --version`, or "unknown" on error.
+// Version returns the yt-dlp release tag we last installed at ytdlpPath. The
+// sidecar file is preferred because execing yt-dlp_macos from inside the macOS
+// .app bundle is killed by Gatekeeper (SIGKILL after ~30s) before it can print
+// its version. Falls back to execing the binary if no sidecar exists yet
+// (first run before Ensure has written it).
 func Version(ytdlpPath string) string {
+	if v := readVersionSidecar(ytdlpPath); v != "" {
+		return v
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), ytdlpVersionTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, ytdlpPath, "--version").Output()
+	cmd := exec.CommandContext(ctx, ytdlpPath, "--version")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	start := time.Now()
+	out, err := cmd.Output()
 	if err != nil {
+		slog.Warn("ytdlp.Version exec failed",
+			"err", err,
+			"path", ytdlpPath,
+			"elapsed", time.Since(start),
+			"stderr", strings.TrimSpace(stderr.String()),
+			"ctx_err", ctx.Err())
 		return "unknown"
 	}
-	return strings.TrimSpace(string(out))
+	v := strings.TrimSpace(string(out))
+	writeVersionSidecar(ytdlpPath, v)
+	return v
 }
 
 // RefreshDaily runs an immediate check on call, then polls every 24h until

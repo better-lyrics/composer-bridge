@@ -45,15 +45,19 @@ func audioContentType(format string) string {
 // (start, ok, error) publishes an activity:update event so the Wails frontend can
 // keep its live feed in sync without polling. A nil Emitter leaves handlers
 // emitting nothing, which is what tests want by default.
+//
+// YtdlpVersion is a callback rather than a stored string so /health always reads
+// the latest cached value even when yt-dlp is refreshed in the background.
 type Handlers struct {
-	Library     *library.Library
-	Activity    *activity.Log
-	YtdlpPath   string
-	ThumbDir    string
-	Bridge      string
-	AudioFormat string
-	Emitter     events.Emitter
-	EmitterCtx  context.Context
+	Library      *library.Library
+	Activity     *activity.Log
+	YtdlpPath    string
+	YtdlpVersion func() string
+	ThumbDir     string
+	Bridge       string
+	AudioFormat  string
+	Emitter      events.Emitter
+	EmitterCtx   context.Context
 }
 
 // Router returns the bridge's HTTP mux. Wrap with WithCORS at the call site for browser access.
@@ -71,9 +75,15 @@ func (h *Handlers) Router() http.Handler {
 
 // Health returns bridge version, yt-dlp version, and a literal "ok" status. Field names are locked to Composer's BridgeHealth interface.
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
+	var ver string
+	if h.YtdlpVersion != nil {
+		ver = h.YtdlpVersion()
+	} else {
+		ver = ytdlp.Version(h.YtdlpPath)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{
 		"bridge": h.Bridge,
-		"ytdlp":  ytdlp.Version(h.YtdlpPath),
+		"ytdlp":  ver,
 		"status": "ok",
 	})
 }

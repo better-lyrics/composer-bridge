@@ -32,6 +32,9 @@ func newTestApp(t *testing.T) (*App, *library.Library, *activity.Log, string) {
 	cfgPath := filepath.Join(dir, "config.json")
 	cfg := config.Defaults()
 	a := New(lib, act, cfg, cfgPath, dir, "", "0.1.0")
+	// Tests don't pass a real Wails ctx, so swap the runtime hooks for no-ops.
+	a.hideWindow = func(context.Context) {}
+	a.showWindow = func(context.Context) {}
 	t.Cleanup(resetActiveForTesting)
 	return a, lib, act, cfgPath
 }
@@ -340,11 +343,25 @@ func TestShutdown_IsNoOp(t *testing.T) {
 	}
 }
 
-func TestOnBeforeCloseAllowsNormalClose(t *testing.T) {
+func TestOnBeforeClose_XButtonHidesAndPreventsQuit(t *testing.T) {
 	a, _, _, _ := newTestApp(t)
 	a.Startup(context.Background())
+	hidden := false
+	a.hideWindow = func(context.Context) { hidden = true }
+	if got := a.OnBeforeClose(context.Background()); !got {
+		t.Errorf("OnBeforeClose with quitting=0 should return true to prevent quit (X button path), got false")
+	}
+	if !hidden {
+		t.Errorf("OnBeforeClose with quitting=0 should invoke hideWindow")
+	}
+}
+
+func TestOnBeforeClose_MarkQuittingLetsQuitProceed(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	a.Startup(context.Background())
+	a.MarkQuitting()
 	if got := a.OnBeforeClose(context.Background()); got {
-		t.Errorf("OnBeforeClose should return false so Wails runs its normal close path (HideWindowOnClose for the X button, Quit for everything else), got true")
+		t.Errorf("OnBeforeClose after MarkQuitting should return false so Wails quits the app (tray Quit path), got true")
 	}
 }
 

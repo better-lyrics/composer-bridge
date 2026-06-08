@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/better-lyrics/composer-bridge/internal/activity"
@@ -20,6 +21,7 @@ import (
 	"github.com/better-lyrics/composer-bridge/internal/config"
 	"github.com/better-lyrics/composer-bridge/internal/library"
 	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
+	"github.com/better-lyrics/composer-bridge/tray"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -39,19 +41,22 @@ var (
 // reads and writes needs mutex protection. mu guards cfg, downloadDir, and
 // ytdlpPath; everything else is set once in New and never mutated.
 type App struct {
-	library     *library.Library
-	activity    *activity.Log
-	cfgPath     string
-	dataDir     string
-	thumbDir    string
-	logPath     string
-	version     string
-	ctx         context.Context
-	hideWindow  func(context.Context)
-	mu          sync.RWMutex
-	cfg         config.Config
-	downloadDir string
-	ytdlpPath   string
+	library      *library.Library
+	activity     *activity.Log
+	cfgPath      string
+	dataDir      string
+	thumbDir     string
+	logPath      string
+	version      string
+	ctx          context.Context
+	hideWindow   func(context.Context)
+	showWindow   func(context.Context)
+	ytdlpVersion func() string
+	quitting     atomic.Int32
+	mu           sync.RWMutex
+	cfg          config.Config
+	downloadDir  string
+	ytdlpPath    string
 }
 
 // New builds an App. Caller retains ownership of lib and act: App does not close them.
@@ -71,6 +76,7 @@ func New(lib *library.Library, act *activity.Log, cfg config.Config, cfgPath, da
 		logPath:     filepath.Join(dataDir, "bridge.log"),
 		version:     version,
 		hideWindow:  wailsRuntime.WindowHide,
+		showWindow:  wailsRuntime.WindowShow,
 	}
 	activeMu.Lock()
 	activeApp = a
@@ -92,8 +98,22 @@ func resolveDownloadDir(configured string) string {
 // Startup stashes the Wails runtime context so later methods can emit events to JS.
 // The package-level active registry is populated by New so callbacks that fire
 // before OnStartup can still find the App; Startup only needs to bind the ctx.
+// On macOS Startup also flips the activation policy to Regular and shows the
+// window: the app launches as Accessory (LSUIElement) so there is no Dock-icon
+// flash during the brief window Wails's own AppDelegate forces Regular on us.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+	tray.DockShow()
+	if a.showWindow != nil {
+		a.showWindow(ctx)
+	}
+}
+
+// MarkQuitting flips an atomic flag the tray's Quit menu sets before calling
+// runtime.Quit. OnBeforeClose reads it to decide whether to let the quit
+// proceed (true: real quit) or intercept and hide instead (false: X button).
+func (a *App) MarkQuitting() {
+	a.quitting.Store(1)
 }
 
 // Shutdown is a no-op: library and activity handles are owned by main.go.
@@ -105,11 +125,20 @@ func (a *App) Ctx() context.Context {
 	return a.ctx
 }
 
-// OnBeforeClose is wired into options.App.OnBeforeClose. Returning false lets
-// Wails run its normal close path (which honours HideWindowOnClose for the X
-// button, and quits cleanly for Cmd+Q or the tray Quit menu item).
+// OnBeforeClose is wired into options.App.OnBeforeClose. Two paths land here:
+// the window's red close button (we want to hide the window and drop the Dock
+// icon) and Wails Quit (Cmd+Q or runtime.Quit via the tray's Quit menu, where
+// we want the app to actually terminate). The tray's Quit handler flips the
+// quitting flag before calling runtime.Quit; this read tells the two apart.
 func (a *App) OnBeforeClose(_ context.Context) bool {
-	return false
+	if a.quitting.Load() == 1 {
+		return false
+	}
+	if a.ctx != nil && a.hideWindow != nil {
+		a.hideWindow(a.ctx)
+		tray.DockHide()
+	}
+	return true
 }
 
 // Active returns the most recently constructed App, or nil if none has been
@@ -211,6 +240,9 @@ func (a *App) GetConfig() config.Config {
 // restart: the running server is not reconfigured in-place. When OpenAtLogin flips
 // it also writes / removes the platform autostart entry.
 func (a *App) SaveConfig(cfg config.Config) error {
+	// The Settings textarea sends origins as a single comma-separated string;
+	// normalize before persisting so the on-disk shape stays a clean array.
+	cfg.AllowedOrigins = config.SplitAndCleanOrigins(cfg.AllowedOrigins)
 	if err := config.Save(a.cfgPath, cfg); err != nil {
 		return err
 	}
@@ -282,11 +314,24 @@ func (a *App) BridgeVersion() string {
 	return a.version
 }
 
-// YtdlpVersion returns the version string of the bundled yt-dlp binary, or "unknown".
+// SetYtdlpVersionFn installs a cached-version callback. main.go primes the
+// cache once at startup (off the goroutine) so reads here never re-exec the
+// binary. Falls back to a one-shot Version() call if the callback is nil.
+func (a *App) SetYtdlpVersionFn(fn func() string) {
+	a.mu.Lock()
+	a.ytdlpVersion = fn
+	a.mu.Unlock()
+}
+
+// YtdlpVersion returns the cached yt-dlp version string, or "unknown".
 func (a *App) YtdlpVersion() string {
 	a.mu.RLock()
+	fn := a.ytdlpVersion
 	path := a.ytdlpPath
 	a.mu.RUnlock()
+	if fn != nil {
+		return fn()
+	}
 	if path == "" {
 		return "unknown"
 	}
