@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config is the on-disk shape of `~/.composer-bridge/config.json`. Every knob the user can tune lives here.
@@ -93,11 +94,32 @@ func Save(path string, cfg Config) error {
 	return nil
 }
 
+// splitAndCleanOrigins re-splits any allowed-origin entry that has commas baked
+// into it. This is a one-shot migration for configs written when the form input
+// used newlines: the user-typed comma list was persisted as a single
+// allowed_origins[0] string. Idempotent: comma-free entries pass through.
+func splitAndCleanOrigins(origins []string) []string {
+	if len(origins) == 0 {
+		return origins
+	}
+	out := make([]string, 0, len(origins))
+	for _, raw := range origins {
+		for _, piece := range strings.Split(raw, ",") {
+			piece = strings.TrimSpace(piece)
+			if piece != "" {
+				out = append(out, piece)
+			}
+		}
+	}
+	return out
+}
+
 func mergeDefaults(cfg Config) Config {
 	d := Defaults()
 	if cfg.ListenPort == 0 {
 		cfg.ListenPort = d.ListenPort
 	}
+	cfg.AllowedOrigins = splitAndCleanOrigins(cfg.AllowedOrigins)
 	if len(cfg.AllowedOrigins) == 0 {
 		cfg.AllowedOrigins = d.AllowedOrigins
 	}
