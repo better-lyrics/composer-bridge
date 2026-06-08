@@ -48,7 +48,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({ config, update }) => {
             placeholder="~/.composer-bridge"
             mono
             ariaLabel="Data directory"
-            className="w-72"
+            className="w-56"
           />
         </SettingRow>
         <SettingRow label="Library size" description="Total bytes used by downloaded audio.">
@@ -63,15 +63,15 @@ const StorageSection: React.FC<StorageSectionProps> = ({ config, update }) => {
         </SettingRow>
         <SettingRow
           label="Download location"
-          description="Where opt-in audio downloads land. Defaults to ~/Music/Composer Bridge."
+          description="Where opt-in audio downloads land. Defaults to ~/Music/Composer."
         >
           <TextInput
             value={config.download_dir}
             onChange={(v) => update("download_dir", v)}
-            placeholder="~/Music/Composer Bridge"
+            placeholder="~/Music/Composer"
             mono
             ariaLabel="Download location"
-            className="w-72"
+            className="w-56"
           />
         </SettingRow>
       </div>

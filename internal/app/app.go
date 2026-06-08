@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/boidushya/composer-bridge/internal/activity"
+	"github.com/boidushya/composer-bridge/internal/autostart"
 	"github.com/boidushya/composer-bridge/internal/config"
 	"github.com/boidushya/composer-bridge/internal/library"
 	"github.com/boidushya/composer-bridge/internal/ytdlp"
@@ -57,7 +58,7 @@ func resolveDownloadDir(configured string) string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, "Music", "Composer Bridge")
+	return filepath.Join(home, "Music", "Composer")
 }
 
 // Startup stashes the Wails runtime context so later methods can emit events to JS.
@@ -118,14 +119,34 @@ func (a *App) GetConfig() config.Config {
 
 // SaveConfig persists cfg to disk and updates the in-memory copy. Changes that affect
 // the HTTP listener (ListenPort, AllowedOrigins) only take effect on the next bridge
-// restart: the running server is not reconfigured in-place.
+// restart: the running server is not reconfigured in-place. When OpenAtLogin flips
+// it also writes / removes the platform autostart entry.
 func (a *App) SaveConfig(cfg config.Config) error {
 	if err := config.Save(a.cfgPath, cfg); err != nil {
 		return err
 	}
+	if cfg.OpenAtLogin != a.cfg.OpenAtLogin {
+		if err := autostart.SetEnabled(cfg.OpenAtLogin, currentExecPath()); err != nil {
+			return fmt.Errorf("apply open-at-login: %w", err)
+		}
+	}
 	a.cfg = cfg
 	a.downloadDir = resolveDownloadDir(cfg.DownloadDir)
 	return nil
+}
+
+func currentExecPath() string {
+	p, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
+// SupportsAutostart reports whether the current platform has an autostart
+// implementation. The frontend disables the toggle when this is false.
+func (a *App) SupportsAutostart() bool {
+	return runtime.GOOS == "darwin"
 }
 
 // OpenInComposer returns the Composer deep-link URL for videoID. The frontend is

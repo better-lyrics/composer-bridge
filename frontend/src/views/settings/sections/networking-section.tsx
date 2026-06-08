@@ -57,7 +57,7 @@ const NetworkingSection: React.FC<NetworkingSectionProps> = ({ config, update })
             )
           }
           ariaLabel="Allowed Composer origins"
-          className="w-80"
+          className="w-56"
         />
       </SettingRow>
     </div>

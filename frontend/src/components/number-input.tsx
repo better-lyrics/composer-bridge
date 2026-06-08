@@ -36,7 +36,7 @@ const NumberInput: React.FC<NumberInputProps> = ({
       if (Number.isFinite(next)) onChange(next);
     }}
     className={cn(
-      "h-7 w-24 px-2 text-sm font-mono rounded-md bg-composer-input border border-composer-border text-composer-text",
+      "h-7 w-20 px-2 text-sm font-mono rounded-md bg-composer-input border border-composer-border text-composer-text",
       "focus:outline-none focus:border-composer-accent",
       "disabled:cursor-not-allowed disabled:opacity-50",
     )}

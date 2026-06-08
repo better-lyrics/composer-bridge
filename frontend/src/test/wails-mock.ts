@@ -20,6 +20,7 @@ export interface AppBindings {
   DownloadAudio: Mock<(videoID: string) => Promise<library.Track>>;
   OpenLogFile: Mock<() => Promise<string>>;
   BuildDiagnosticReport: Mock<() => Promise<string>>;
+  SupportsAutostart: Mock<() => Promise<boolean>>;
 }
 
 const DEFAULT_CONFIG = {
@@ -82,6 +83,7 @@ export function setupWailsMock(overrides: Partial<AppBindings> = {}): AppBinding
       .mockResolvedValue(emptyTrack),
     OpenLogFile: vi.fn<() => Promise<string>>().mockResolvedValue("file:///tmp/bridge.log"),
     BuildDiagnosticReport: vi.fn<() => Promise<string>>().mockResolvedValue("diagnostics"),
+    SupportsAutostart: vi.fn<() => Promise<boolean>>().mockResolvedValue(true),
     ...overrides,
   };
   (window as unknown as { go: { app: { App: AppBindings } } }).go = {

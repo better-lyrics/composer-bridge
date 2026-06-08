@@ -75,7 +75,7 @@ const YtdlpSection: React.FC<YtdlpSectionProps> = ({
             placeholder="auto-detect"
             mono
             ariaLabel="yt-dlp binary path"
-            className="w-64"
+            className="w-48"
           />
         </SettingRow>
         <SettingRow

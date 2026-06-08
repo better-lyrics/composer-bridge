@@ -22,6 +22,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -102,10 +103,19 @@ func main() {
 
 	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
 	err = wails.Run(&options.App{
-		Title:       "Composer Bridge",
-		Width:       1024,
-		Height:      700,
-		AssetServer: &assetserver.Options{Assets: assets},
+		Title:            "Composer Bridge",
+		Width:            1024,
+		Height:           700,
+		MinWidth:         800,
+		MinHeight:        540,
+		AssetServer:      &assetserver.Options{Assets: assets},
+		BackgroundColour: &options.RGBA{R: 0x28, G: 0x29, B: 0x2c, A: 1},
+		Mac: &mac.Options{
+			TitleBar:             mac.TitleBarHiddenInset(),
+			Appearance:           mac.NSAppearanceNameDarkAqua,
+			WebviewIsTransparent: false,
+			WindowIsTranslucent:  false,
+		},
 		OnStartup: func(ctx context.Context) {
 			a.Startup(ctx)
 			handlers.EmitterCtx = ctx

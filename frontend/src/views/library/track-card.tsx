@@ -28,7 +28,7 @@ const TrackCard: React.FC<TrackCardProps> = ({ track, onSelect }) => {
       data-testid="track-card"
       data-video-id={track.video_id}
       className={cn(
-        "group flex flex-col gap-2 rounded-lg border border-composer-border bg-composer-bg-dark p-2 text-left cursor-pointer",
+        "group flex flex-col gap-2 rounded-lg border border-composer-border bg-composer-bg-dark p-2 text-left",
         "transition-colors hover:border-composer-border-hover",
       )}
     >

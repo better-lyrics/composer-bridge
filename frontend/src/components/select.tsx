@@ -32,7 +32,7 @@ function Select<T extends string>({
       aria-label={ariaLabel}
       className={cn(
         "h-7 px-2 text-sm rounded-lg bg-composer-input text-composer-text border border-composer-border",
-        "focus:outline-none focus:border-composer-accent cursor-pointer",
+        "focus:outline-none focus:border-composer-accent",
         "disabled:cursor-not-allowed disabled:opacity-50",
       )}
     >
