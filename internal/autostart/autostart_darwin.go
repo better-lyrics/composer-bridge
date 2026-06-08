@@ -83,3 +83,7 @@ func IsEnabled() bool {
 	_, err = os.Stat(path)
 	return err == nil
 }
+
+// Refresh is a no-op on darwin because LaunchAgent plists encode the exec
+// path on first enable and the user re-toggles in Settings if it moves.
+func Refresh(_ string) error { return nil }

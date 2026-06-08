@@ -45,3 +45,27 @@ func TestSetEnabledFalseDeletesValueAndIsIdempotent(t *testing.T) {
 		t.Errorf("SetEnabled false (second call): %v", err)
 	}
 }
+
+func TestRefreshRewritesValueWhenExecPathChanges(t *testing.T) {
+	t.Cleanup(func() { clean(t) })
+	_ = setEnabledWithName(true, `C:\old\app.exe`, testValueName)
+	if err := refreshWithName(`C:\new\app.exe`, testValueName); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	k, _ := registry.OpenKey(registry.CURRENT_USER, runKey, registry.QUERY_VALUE)
+	defer k.Close()
+	val, _, _ := k.GetStringValue(testValueName)
+	if val != `"C:\new\app.exe"` {
+		t.Errorf("Refresh did not rewrite stale exec path; got %q", val)
+	}
+}
+
+func TestRefreshIsANoopWhenAutostartDisabled(t *testing.T) {
+	t.Cleanup(func() { clean(t) })
+	if err := refreshWithName(`C:\some\app.exe`, testValueName); err != nil {
+		t.Fatalf("Refresh on disabled: %v", err)
+	}
+	if isEnabledWithName(testValueName) {
+		t.Errorf("Refresh enabled autostart from disabled state")
+	}
+}

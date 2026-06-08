@@ -56,3 +56,8 @@ func autostartFilePath() (string, error) {
 	}
 	return filepath.Join(configDir, "autostart", desktopFileName), nil
 }
+
+// Refresh is a no-op on linux for the same reason as darwin: the .desktop
+// file points at the exec path the user opted in with, and re-toggling
+// from Settings is the supported way to update it.
+func Refresh(_ string) error { return nil }

@@ -49,3 +49,18 @@ func isEnabledWithName(name string) bool {
 	_, _, err = k.GetStringValue(name)
 	return err == nil
 }
+
+// Refresh re-writes the Run key with execPath IF autostart is currently
+// enabled. Idempotent when disabled. Call at app startup so a moved or
+// renamed binary doesn't leave a stale Run entry pointing at the old
+// location.
+func Refresh(execPath string) error {
+	return refreshWithName(execPath, valueName)
+}
+
+func refreshWithName(execPath, name string) error {
+	if !isEnabledWithName(name) {
+		return nil
+	}
+	return setEnabledWithName(true, execPath, name)
+}

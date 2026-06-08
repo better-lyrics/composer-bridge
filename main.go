@@ -12,6 +12,7 @@ import (
 
 	"github.com/better-lyrics/composer-bridge/internal/activity"
 	"github.com/better-lyrics/composer-bridge/internal/app"
+	"github.com/better-lyrics/composer-bridge/internal/autostart"
 	"github.com/better-lyrics/composer-bridge/internal/config"
 	"github.com/better-lyrics/composer-bridge/internal/events"
 	"github.com/better-lyrics/composer-bridge/internal/library"
@@ -106,6 +107,12 @@ func main() {
 	})
 
 	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
+
+	if exec, err := os.Executable(); err == nil {
+		if err := autostart.Refresh(exec); err != nil {
+			slog.Warn("autostart refresh failed", "err", err)
+		}
+	}
 
 	trayCtrl := tray.New()
 	trayCtrl.Register()
