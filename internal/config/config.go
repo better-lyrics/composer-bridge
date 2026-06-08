@@ -78,9 +78,10 @@ func Save(path string, cfg Config) error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
 		return fmt.Errorf("write config tmp: %w", err)
 	}
+	// TODO(windows): os.Rename onto an existing file fails on Windows; swap to a Windows-safe atomic rename helper if/when the bridge ships there.
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("rename config tmp: %w", err)
