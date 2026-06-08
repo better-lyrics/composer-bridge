@@ -13,22 +13,22 @@ The installer is unsigned. I am one person and Apple/Microsoft code signing cost
 **macOS and Linux**
 
 ```
-curl -fsSL https://github.com/boidushya/composer-bridge/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/better-lyrics/composer-bridge/releases/latest/download/install.sh | sh
 ```
 
 The script verifies the sha256 of the asset against `manifest.json` before writing anything to disk. On macOS the app lands in `/Applications` with the Gatekeeper quarantine flag cleared, so the "downloaded from internet" prompt is skipped. On Linux the AppImage goes to `~/.local/bin/composer-bridge.AppImage`. Set `INSTALL_DIR` to override the path, or `VERSION=v0.2.0` to pin a specific release.
 
 **Windows**
 
-Grab the installer from the [latest release page](https://github.com/boidushya/composer-bridge/releases/latest) and double-click it. SmartScreen will block it the first time. Click "More info", then "Run anyway". This only happens once per version.
+Grab the installer from the [latest release page](https://github.com/better-lyrics/composer-bridge/releases/latest) and double-click it. SmartScreen will block it the first time. Click "More info", then "Run anyway". This only happens once per version.
 
 ## How to use
 
-1. Launch Composer Bridge. It runs in the menu bar (macOS) or tray (Windows/Linux), with no main window by default.
+1. Launch Composer Bridge. The app window has Library, Activity, and Settings views; leave it running in the background while you work in Composer.
 2. In Composer, open Advanced settings and toggle on the experimental "Composer Bridge" option.
 3. Paste a YouTube link as usual. Composer will route the fetch through the bridge.
 
-Click the tray icon to open the Library view, which shows every track you've fetched, with thumbnails, a re-fetch button, and a search box.
+The Library view shows every track you've fetched, with thumbnails, a search box, and inline download / open-in-Composer buttons. The Activity view is the live log of yt-dlp imports and downloads, which is handy when something fails and you want the raw stderr.
 
 ## Troubleshooting
 
@@ -38,8 +38,8 @@ Click the tray icon to open the Library view, which shows every track you've fet
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+AGPL-3.0. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-[yt-dlp](https://github.com/yt-dlp/yt-dlp) does all the heavy lifting. [Wails](https://wails.io) makes shipping a Go + React desktop app pleasant. The icon and brand colour come from [Better Lyrics](https://better-lyrics.boidu.dev), whose visual identity the bridge inherits.
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) does all the heavy lifting. [Wails](https://wails.io) makes shipping a Go + React desktop app pleasant. The icon and brand colour come from [Better Lyrics](https://betterlyrics.org), whose visual identity the bridge inherits.
