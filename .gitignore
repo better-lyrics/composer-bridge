@@ -1,0 +1,10 @@
+build/bin/
+frontend/dist/
+frontend/node_modules/
+frontend/wailsjs/
+*.log
+.DS_Store
+*.out
+*.test
+coverage.out
+dist/
