@@ -36,7 +36,7 @@ const (
 	StatusError Status = "error"
 )
 
-// Entry is one persisted activity row. StartedAt and EndedAt are Unix seconds; EndedAt is 0 while running.
+// Entry is one persisted activity row. StartedAt and EndedAt are Unix epoch milliseconds; EndedAt is 0 while running.
 type Entry struct {
 	ID        int64
 	Kind      Kind
@@ -83,20 +83,20 @@ func Open(path string) (*Log, error) {
 // Close releases the underlying database handle.
 func (l *Log) Close() error { return l.db.Close() }
 
-// Start inserts a new row with status=running, ended_at=0, and the current Unix time as started_at. Returns the new row id.
+// Start inserts a new row with status=running, ended_at=0, and the current Unix epoch milliseconds as started_at. Returns the new row id.
 func (l *Log) Start(kind Kind, videoID string) (int64, error) {
 	const stmt = `INSERT INTO activity (kind, video_id, started_at, ended_at, status, message) VALUES (?, ?, ?, 0, ?, '') RETURNING id`
 	var id int64
-	if err := l.db.QueryRow(stmt, string(kind), videoID, time.Now().Unix(), string(StatusRunning)).Scan(&id); err != nil {
+	if err := l.db.QueryRow(stmt, string(kind), videoID, time.Now().UnixMilli(), string(StatusRunning)).Scan(&id); err != nil {
 		return 0, fmt.Errorf("insert activity: %w", err)
 	}
 	return id, nil
 }
 
-// End sets ended_at to the current Unix time and writes status and message for the row matching id. Returns ErrNotFound if no row matched.
+// End sets ended_at to the current Unix epoch milliseconds and writes status and message for the row matching id. Returns ErrNotFound if no row matched.
 func (l *Log) End(id int64, status Status, message string) error {
 	const stmt = `UPDATE activity SET ended_at = ?, status = ?, message = ? WHERE id = ?`
-	res, err := l.db.Exec(stmt, time.Now().Unix(), string(status), message, id)
+	res, err := l.db.Exec(stmt, time.Now().UnixMilli(), string(status), message, id)
 	if err != nil {
 		return fmt.Errorf("update activity: %w", err)
 	}
@@ -110,7 +110,7 @@ func (l *Log) End(id int64, status Status, message string) error {
 	return nil
 }
 
-// Recent returns rows ordered by started_at DESC, limited to limit. A non-positive limit returns an empty slice without error.
+// Recent returns rows ordered by started_at DESC, limited to limit. A non-positive limit returns nil without error.
 func (l *Log) Recent(limit int) ([]Entry, error) {
 	if limit <= 0 {
 		return nil, nil

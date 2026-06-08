@@ -61,12 +61,12 @@ func TestOpen_CreatesSchemaAndIsIdempotent(t *testing.T) {
 func TestStart_PersistsRunningRow(t *testing.T) {
 	log, _ := openTempLog(t)
 
-	before := time.Now().Unix()
+	before := time.Now().UnixMilli()
 	id, err := log.Start(KindImport, "dQw4w9WgXcQ")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	after := time.Now().Unix()
+	after := time.Now().UnixMilli()
 
 	entries, err := log.Recent(10)
 	if err != nil {
@@ -99,6 +99,29 @@ func TestStart_PersistsRunningRow(t *testing.T) {
 	}
 }
 
+func TestStartedAtIsMillisecondGranularity(t *testing.T) {
+	log, _ := openTempLog(t)
+
+	if _, err := log.Start(KindAudioDownload, "vid1"); err != nil {
+		t.Fatalf("Start 1: %v", err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	if _, err := log.Start(KindAudioDownload, "vid2"); err != nil {
+		t.Fatalf("Start 2: %v", err)
+	}
+
+	entries, err := log.Recent(10)
+	if err != nil {
+		t.Fatalf("Recent: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("Recent: got %d, want 2", len(entries))
+	}
+	if entries[0].StartedAt == entries[1].StartedAt {
+		t.Errorf("StartedAt: Start calls 2ms apart produced equal timestamps (%d == %d); millisecond granularity expected (seconds-granular Unix() would equate these)", entries[0].StartedAt, entries[1].StartedAt)
+	}
+}
+
 func TestEnd_FlipsToOkAndSetsEndedAt(t *testing.T) {
 	log, _ := openTempLog(t)
 
@@ -107,11 +130,11 @@ func TestEnd_FlipsToOkAndSetsEndedAt(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	before := time.Now().Unix()
+	before := time.Now().UnixMilli()
 	if err := log.End(id, StatusOK, "downloaded 4.5MB"); err != nil {
 		t.Fatalf("End: %v", err)
 	}
-	after := time.Now().Unix()
+	after := time.Now().UnixMilli()
 
 	entries, err := log.Recent(10)
 	if err != nil {
@@ -207,12 +230,12 @@ func TestRecent_OrderedByStartedAtDesc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start 1: %v", err)
 	}
-	time.Sleep(1100 * time.Millisecond)
+	time.Sleep(2 * time.Millisecond)
 	id2, err := log.Start(KindImport, "bbbbbbbbbbb")
 	if err != nil {
 		t.Fatalf("Start 2: %v", err)
 	}
-	time.Sleep(1100 * time.Millisecond)
+	time.Sleep(2 * time.Millisecond)
 	id3, err := log.Start(KindYtdlpUpdate, "")
 	if err != nil {
 		t.Fatalf("Start 3: %v", err)
