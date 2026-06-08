@@ -52,6 +52,7 @@ func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath st
 		"--no-warnings",
 		"--no-playlist",
 		"--force-overwrites",
+		"--extractor-args", "youtube:player_client=web,web_music",
 		videoURL(videoID),
 	}
 	if format == "mp3" {

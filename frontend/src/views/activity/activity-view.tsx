@@ -38,7 +38,7 @@ const ActivityView: React.FC = () => {
         ) : sorted.length === 0 ? (
           <p className="text-sm text-composer-text-muted">No activity yet.</p>
         ) : (
-          <div className="flex flex-col divide-y divide-composer-border rounded-lg border border-composer-border bg-composer-bg-dark">
+          <div className="flex flex-col divide-y divide-composer-border rounded-lg border border-composer-border bg-composer-bg-dark overflow-hidden">
             {sorted.map((entry) => (
               <ActivityRow
                 key={entry.id}

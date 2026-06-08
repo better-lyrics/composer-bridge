@@ -86,6 +86,7 @@ func StreamAudio(ctx context.Context, ytdlpPath, videoID, format string, w io.Wr
 		"--quiet",
 		"--no-warnings",
 		"--no-playlist",
+		"--extractor-args", "youtube:player_client=web,web_music",
 		videoURL(videoID),
 	}
 	cmd := exec.CommandContext(ctx, ytdlpPath, args...)

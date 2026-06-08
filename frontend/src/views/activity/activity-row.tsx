@@ -1,5 +1,7 @@
+import { useState } from "react";
 import {
   IconCheck,
+  IconCopy,
   IconExclamationCircle,
   IconLoader2,
   type IconProps,
@@ -38,6 +40,33 @@ function statusIcon(status: string): {
   return { Icon: IconExclamationCircle, className: "text-composer-error-text" };
 }
 
+// -- Sub-components -----------------------------------------------------------
+
+const CopyButton: React.FC<{ text: string }> = ({ text }) => {
+  const [copied, setCopied] = useState(false);
+  const handle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error("clipboard write failed", err);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={handle}
+      aria-label="Copy error"
+      title="Copy error"
+      className="shrink-0 rounded p-1 text-composer-text-muted hover:bg-composer-button hover:text-composer-text transition-colors"
+    >
+      {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+    </button>
+  );
+};
+
 // -- Component ----------------------------------------------------------------
 
 const ActivityRow: React.FC<ActivityRowProps> = ({ entry, trackTitle }) => {
@@ -45,6 +74,7 @@ const ActivityRow: React.FC<ActivityRowProps> = ({ entry, trackTitle }) => {
   const isLiveDownload = entry.kind === "audio_download" && entry.status === "running";
   const kindLabel = KIND_LABELS[entry.kind] ?? entry.kind;
   const subject = trackTitle || entry.video_id || "unknown";
+  const hasError = entry.status === "error" && Boolean(entry.message);
   return (
     <div
       data-testid="activity-row"
@@ -62,13 +92,16 @@ const ActivityRow: React.FC<ActivityRowProps> = ({ entry, trackTitle }) => {
       <span className="flex-1 truncate text-sm text-composer-text" title={subject}>
         {subject}
       </span>
-      {entry.status === "error" && entry.message && (
-        <span
-          className="max-w-xs truncate text-xs text-composer-error-text/80 select-text"
-          title={entry.message}
-        >
-          {entry.message}
-        </span>
+      {hasError && (
+        <>
+          <span
+            className="max-w-xs truncate text-xs text-composer-error-text/80 select-text"
+            title={entry.message}
+          >
+            {entry.message}
+          </span>
+          <CopyButton text={entry.message} />
+        </>
       )}
       <span className="shrink-0 font-mono text-[11px] text-composer-text-muted">
         {formatRelativeTime(entry.started_at)}

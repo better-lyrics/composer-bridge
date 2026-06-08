@@ -292,6 +292,8 @@ func TestStreamAudio_ArgvIncludesRegressionFlags(t *testing.T) {
 		"--quiet",
 		"--no-warnings",
 		"--no-playlist",
+		"--extractor-args",
+		"youtube:player_client=web,web_music",
 		"https://www.youtube.com/watch?v=ZEcqHA7dbwM",
 	}
 	for _, s := range wantSubstrs {
