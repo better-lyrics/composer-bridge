@@ -16,7 +16,7 @@
 
 set -eu
 
-REPO="boidushya/composer-bridge"
+REPO="better-lyrics/composer-bridge"
 PREFIX="[install]"
 TMPDIR_ROOT=""
 
@@ -185,6 +185,10 @@ fi
 
 log "verifying checksum"
 ACTUAL_SHA=$(shasum -a 256 "$ASSET_PATH" | awk '{print $1}')
+if [ -z "$ACTUAL_SHA" ]; then
+    err "could not compute sha256 of downloaded asset"
+    exit 3
+fi
 if [ "$ACTUAL_SHA" != "$ASSET_SHA" ]; then
     err "checksum mismatch"
     err "  expected: $ASSET_SHA"
