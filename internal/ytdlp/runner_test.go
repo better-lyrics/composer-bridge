@@ -287,7 +287,7 @@ func TestStreamAudio_ArgvIncludesRegressionFlags(t *testing.T) {
 	msg := err.Error()
 	wantSubstrs := []string{
 		"-f",
-		"bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio",
+		"bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best",
 		"-o",
 		"--quiet",
 		"--no-warnings",

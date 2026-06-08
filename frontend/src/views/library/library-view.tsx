@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { IconCheck, IconCopy, IconSearch } from "@tabler/icons-react";
+import { IconExternalLink, IconSearch } from "@tabler/icons-react";
+import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
 import { Button } from "@/components/button";
 import { Select } from "@/components/select";
 import { TextInput } from "@/components/text-input";
@@ -10,7 +10,7 @@ import { TrackCard } from "@/views/library/track-card";
 
 // -- Constants ----------------------------------------------------------------
 
-const IMPORT_URL = "http://localhost:7777/import";
+const COMPOSER_URL = "https://composer.boidu.dev";
 
 const SORT_OPTIONS: { value: LibrarySort; label: string }[] = [
   { value: "recent", label: "Recently imported" },
@@ -21,30 +21,19 @@ const SORT_OPTIONS: { value: LibrarySort; label: string }[] = [
 
 // -- Sub-components -----------------------------------------------------------
 
-const EmptyState: React.FC = () => {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(IMPORT_URL);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (err) {
-      console.error("clipboard write failed", err);
-    }
-  };
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-center">
-      <p className="text-lg text-composer-text-secondary">No tracks yet.</p>
-      <p className="text-sm text-composer-text-muted">
-        POST a YouTube videoId to the import endpoint to add one.
-      </p>
-      <Button variant="secondary" size="sm" hasIcon onClick={copy}>
-        {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
-        {copied ? "Copied" : `Copy ${IMPORT_URL}`}
-      </Button>
-    </div>
-  );
-};
+const EmptyState: React.FC = () => (
+  <div className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-center">
+    <p className="text-lg text-composer-text-secondary">No tracks yet.</p>
+    <p className="max-w-sm text-sm text-composer-text-muted">
+      Open Composer, enable the Composer Bridge experiment in Advanced settings, then import any
+      YouTube link. Tracks land here automatically.
+    </p>
+    <Button variant="secondary" size="sm" hasIcon onClick={() => BrowserOpenURL(COMPOSER_URL)}>
+      <IconExternalLink size={14} />
+      Open Composer
+    </Button>
+  </div>
+);
 
 // -- View ---------------------------------------------------------------------
 

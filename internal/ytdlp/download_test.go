@@ -7,12 +7,12 @@ func TestFormatSelector_KnownKeys(t *testing.T) {
 		format string
 		want   string
 	}{
-		{"opus", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio"},
-		{"", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio"},
-		{"m4a", "bestaudio[ext=m4a]/bestaudio"},
-		{"webm", "bestaudio[ext=webm]/bestaudio"},
+		{"opus", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best"},
+		{"", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best"},
+		{"m4a", "bestaudio[ext=m4a]/bestaudio/best"},
+		{"webm", "bestaudio[ext=webm]/bestaudio/best"},
 		{"mp3", "bestaudio/best"},
-		{"garbage", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio"},
+		{"garbage", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best"},
 	}
 	for _, tt := range tests {
 		if got := FormatSelector(tt.format); got != tt.want {

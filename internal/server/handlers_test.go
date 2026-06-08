@@ -293,7 +293,7 @@ func TestAudio_ArgvRegressionFlags(t *testing.T) {
 
 	entry := env.lastActivity()
 	wantSubstrs := []string{
-		"-f", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio",
+		"-f", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best",
 		"-o", "--quiet", "--no-warnings", "--no-playlist",
 		"--extractor-args", "youtube:player_client=web,web_music",
 		"https://www.youtube.com/watch?v=RgKAFK5djSk",

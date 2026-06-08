@@ -9,19 +9,22 @@ import (
 )
 
 // FormatSelector maps a user-facing format key (opus / m4a / webm / mp3) to the
-// yt-dlp -f expression we hand to the subprocess. Unknown keys fall back to opus.
+// yt-dlp -f expression we hand to the subprocess. Every selector ends in
+// `bestaudio/best` so a video with no preferred codec still falls back to
+// whatever audio (or audio+video) yt-dlp can produce. Unknown keys behave like
+// opus.
 func FormatSelector(format string) string {
 	switch format {
 	case "m4a":
-		return "bestaudio[ext=m4a]/bestaudio"
+		return "bestaudio[ext=m4a]/bestaudio/best"
 	case "webm":
-		return "bestaudio[ext=webm]/bestaudio"
+		return "bestaudio[ext=webm]/bestaudio/best"
 	case "mp3":
 		return "bestaudio/best"
 	case "opus", "":
-		return "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio"
+		return "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best"
 	default:
-		return "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio"
+		return "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best"
 	}
 }
 
