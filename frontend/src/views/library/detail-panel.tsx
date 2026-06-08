@@ -163,7 +163,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
         style={{ transitionDuration: `${TRANSITION_MS}ms` }}
       >
         <header className="flex items-center justify-between border-b border-composer-border px-5 py-3">
-          <span className="text-xs uppercase tracking-wider text-composer-text-muted">Track details</span>
+          <span className="text-xs tracking-wide text-composer-text-muted">Track details</span>
           <Button variant="ghost" size="icon" aria-label="Close details" onClick={handleClose}>
             <IconX size={16} />
           </Button>

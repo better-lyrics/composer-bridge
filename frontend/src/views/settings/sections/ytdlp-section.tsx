@@ -49,7 +49,7 @@ const YtdlpSection: React.FC<YtdlpSectionProps> = ({
 
   return (
     <section className="flex flex-col">
-      <h2 className="mb-1 text-xs font-medium uppercase tracking-wider text-composer-text-muted">
+      <h2 className="mb-1 text-xs font-medium tracking-wide text-composer-text-muted">
         yt-dlp
       </h2>
       <div className="divide-y divide-composer-border">

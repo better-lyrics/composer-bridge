@@ -43,7 +43,7 @@ const DiagnosticsSection: React.FC<DiagnosticsSectionProps> = ({ config, update 
 
   return (
     <section className="flex flex-col">
-      <h2 className="mb-1 text-xs font-medium uppercase tracking-wider text-composer-text-muted">
+      <h2 className="mb-1 text-xs font-medium tracking-wide text-composer-text-muted">
         Diagnostics
       </h2>
       <div className="divide-y divide-composer-border">
