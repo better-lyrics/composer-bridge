@@ -75,7 +75,7 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Audio streams the bestaudio track for videoID. Wraps the call in an activity row so the Activity feed shows "downloading X" in real time. Returns 502 JSON if yt-dlp fails before any bytes flow, otherwise the connection is closed mid-stream. As a side effect, the videoID is upserted into the library in the background so the bridge UI can display the track even though Composer never explicitly imports it.
+// Audio streams the bestaudio track for videoID. Wraps the call in an activity row so the Activity feed shows "downloading X" in real time. Returns 502 JSON if yt-dlp fails before any bytes flow, otherwise the connection is closed mid-stream. Before streaming, the handler fetches metadata so it can set X-Track-Title and X-Track-Artist response headers (used by Composer to populate the project title) and persist the track to the library so the bridge UI sees it.
 func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	videoID := r.PathValue("id")
 	if !ytdlp.VideoIDRe.MatchString(videoID) {
@@ -86,11 +86,23 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "opus"
 	}
-	go h.ensureLibraryEntry(videoID)
+	track := h.resolveTrackForAudio(r.Context(), videoID)
 	actID := h.startActivity(activity.KindAudioDownload, videoID)
 	w.Header().Set("Content-Type", audioContentType(format))
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Bridge-Version", h.Bridge)
+	if track != nil {
+		w.Header().Set("Access-Control-Expose-Headers", "X-Track-Title, X-Track-Artist, X-Track-Album, X-Bridge-Version")
+		if track.Title != "" {
+			w.Header().Set("X-Track-Title", track.Title)
+		}
+		if track.Artist != "" {
+			w.Header().Set("X-Track-Artist", track.Artist)
+		}
+		if track.Album != "" {
+			w.Header().Set("X-Track-Album", track.Album)
+		}
+	}
 	tw := &trackingWriter{rw: w}
 	err := ytdlp.StreamAudio(r.Context(), h.YtdlpPath, videoID, format, tw)
 	if err == nil {
@@ -105,25 +117,25 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusBadGateway, fmt.Sprintf("yt-dlp failed for %s", videoID))
 }
 
-// ensureLibraryEntry fetches metadata for videoID and inserts/updates the
-// library row in the background. Skipped when a row already exists. Failures
-// are logged and never break the caller's request. Uses a detached context so
-// the request closing doesn't kill the metadata fetch mid-flight.
-func (h *Handlers) ensureLibraryEntry(videoID string) {
-	if _, err := h.Library.GetTrack(videoID); err == nil {
-		return
+// resolveTrackForAudio returns the library entry for videoID, fetching and
+// inserting metadata via yt-dlp on a cache miss. Best-effort: returns nil on
+// any failure so the audio request can still proceed with no title headers.
+func (h *Handlers) resolveTrackForAudio(ctx context.Context, videoID string) *library.Track {
+	if existing, err := h.Library.GetTrack(videoID); err == nil && existing != nil {
+		return existing
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	infoCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	info, err := ytdlp.FetchInfo(ctx, h.YtdlpPath, videoID)
+	info, err := ytdlp.FetchInfo(infoCtx, h.YtdlpPath, videoID)
 	if err != nil {
-		slog.Warn("audio: background info fetch failed", "videoID", videoID, "err", err)
-		return
+		slog.Warn("audio: info fetch failed", "videoID", videoID, "err", err)
+		return nil
 	}
 	track := trackFromInfo(info)
 	if err := h.Library.InsertTrack(&track); err != nil {
-		slog.Warn("audio: background library insert failed", "videoID", videoID, "err", err)
+		slog.Warn("audio: library insert failed", "videoID", videoID, "err", err)
 	}
+	return &track
 }
 
 // Import fetches metadata for the body's video_id, inserts a track row, and returns the inserted record. Wrapped in an activity row.
