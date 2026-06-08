@@ -16,6 +16,7 @@ import (
 	"github.com/boidushya/composer-bridge/internal/events"
 	"github.com/boidushya/composer-bridge/internal/library"
 	"github.com/boidushya/composer-bridge/internal/server"
+	"github.com/boidushya/composer-bridge/internal/updater"
 	"github.com/boidushya/composer-bridge/internal/ytdlp"
 
 	"github.com/wailsapp/wails/v2"
@@ -88,6 +89,9 @@ func main() {
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
 	go ytdlp.RefreshDaily(bgCtx, dataDir)
+	go updater.PollDaily(bgCtx, updater.DefaultManifestURL, Version, func(info updater.UpdateInfo) {
+		slog.Info("bridge update available", "version", info.Latest, "current", info.Current)
+	})
 
 	a := app.New(lib, act, cfg, cfgPath, Version)
 	err = wails.Run(&options.App{
