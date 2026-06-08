@@ -20,6 +20,11 @@ const ActivityView: React.FC = () => {
   const { entries, loaded } = useActivity(Number(limit));
   const { tracks } = useLibrary();
   const sorted = useMemo(() => entries.toSorted((a, b) => b.started_at - a.started_at), [entries]);
+  const titleByVideoId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of tracks) m.set(t.video_id, t.title);
+    return m;
+  }, [tracks]);
 
   return (
     <div className="flex h-full flex-col">
@@ -41,7 +46,7 @@ const ActivityView: React.FC = () => {
               <ActivityRow
                 key={entry.id}
                 entry={entry}
-                trackTitle={titleForEntry(entry, tracks)}
+                trackTitle={titleForEntry(entry, titleByVideoId)}
               />
             ))}
           </div>

@@ -6,7 +6,7 @@ import {
   IconLoader2,
   type IconProps,
 } from "@tabler/icons-react";
-import type { activity, library } from "../../../wailsjs/go/models";
+import type { activity } from "../../../wailsjs/go/models";
 import { cn } from "@/utils/cn";
 import { formatRelativeTime } from "@/utils/format-time";
 
@@ -111,11 +111,13 @@ const ActivityRow: React.FC<ActivityRowProps> = ({ entry, trackTitle }) => {
 };
 
 // titleForEntry resolves an entry to a human-readable string from a track lookup
-// map. Exported so the activity view can construct the map once and pass per row.
-export function titleForEntry(entry: activity.Entry, tracks: library.Track[]): string | undefined {
+// map. The view builds the map once with useMemo so this is O(1) per row.
+export function titleForEntry(
+  entry: activity.Entry,
+  titleByVideoId: Map<string, string>,
+): string | undefined {
   if (!entry.video_id) return undefined;
-  const match = tracks.find((t) => t.video_id === entry.video_id);
-  return match?.title;
+  return titleByVideoId.get(entry.video_id);
 }
 
 // -- Exports ------------------------------------------------------------------
