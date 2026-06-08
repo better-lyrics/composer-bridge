@@ -67,6 +67,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   useEffect(() => {
     if (!selectedVideoId) return;
     setDownloadError(null);
+    setTrack(null);
     let cancelled = false;
     GetTrack(selectedVideoId)
       .then((t) => {
@@ -83,10 +84,14 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   useEffect(() => {
     if (isOpen && !present) {
       setPresent(true);
-      const id = requestAnimationFrame(() =>
-        requestAnimationFrame(() => setEnterPhase(true)),
-      );
-      return () => cancelAnimationFrame(id);
+      let inner = 0;
+      const outer = requestAnimationFrame(() => {
+        inner = requestAnimationFrame(() => setEnterPhase(true));
+      });
+      return () => {
+        cancelAnimationFrame(outer);
+        if (inner) cancelAnimationFrame(inner);
+      };
     }
     if (!isOpen && present) {
       setEnterPhase(false);
@@ -139,7 +144,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   };
 
   const aspectClass = track?.is_music ? "aspect-square" : "aspect-video";
-  const isDownloaded = track?.audio_path && track.audio_path.length > 0;
+  const isDownloaded = Boolean(track?.audio_path && track.audio_path.length > 0);
 
   return (
     <>
@@ -205,7 +210,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
                 size="md"
                 hasIcon
                 onClick={downloadAudio}
-                disabled={downloading || Boolean(isDownloaded)}
+                disabled={downloading || isDownloaded}
               >
                 {downloading ? (
                   <IconLoader2 size={14} className="animate-spin" />
