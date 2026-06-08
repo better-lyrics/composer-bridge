@@ -1,0 +1,353 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  matrix-build:
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: darwin-arm64
+            runner: macos-14
+            wails_platform: darwin/arm64
+            artifact_name: bridge-darwin-arm64
+          - label: darwin-amd64
+            runner: macos-15-intel
+            wails_platform: darwin/amd64
+            artifact_name: bridge-darwin-amd64
+          - label: windows-amd64
+            runner: windows-latest
+            wails_platform: windows/amd64
+            artifact_name: bridge-windows-amd64
+          - label: linux-amd64
+            runner: ubuntu-latest
+            wails_platform: linux/amd64
+            artifact_name: bridge-linux-amd64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install Linux build deps
+        if: matrix.runner == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install NSIS (Windows)
+        if: matrix.runner == 'windows-latest'
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
+      - name: Install Wails CLI
+        shell: bash
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Wails build (macOS / Linux)
+        if: matrix.runner != 'windows-latest'
+        shell: bash
+        run: |
+          wails build -clean -platform ${{ matrix.wails_platform }} \
+            -ldflags "-X main.Version=${{ steps.version.outputs.version }}"
+
+      - name: Wails build (Windows + NSIS)
+        if: matrix.runner == 'windows-latest'
+        shell: pwsh
+        run: |
+          wails build -clean -platform ${{ matrix.wails_platform }} -nsis `
+            -ldflags "-X main.Version=${{ steps.version.outputs.version }}"
+
+      - name: Package macOS .app
+        if: startsWith(matrix.label, 'darwin')
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build/bin
+          ditto -c -k --sequesterRsrc --keepParent "composer-bridge.app" \
+            "${{ github.workspace }}/${{ matrix.artifact_name }}.zip"
+
+      - name: Build macOS DMG
+        if: startsWith(matrix.label, 'darwin')
+        uses: L-Super/create-dmg-action@v1.0.4
+        with:
+          dmgName: ${{ matrix.artifact_name }}
+          src: build/bin/composer-bridge.app
+
+      - name: Stage Windows artifacts
+        if: matrix.runner == 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p stage
+          cp build/bin/composer-bridge.exe stage/composer-bridge.exe
+          if compgen -G "build/bin/*installer*.exe" > /dev/null; then
+            cp build/bin/*installer*.exe stage/composer-bridge-setup.exe
+          fi
+          ls -la stage
+
+      - name: Upload artifact (macOS)
+        if: startsWith(matrix.label, 'darwin')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            ${{ matrix.artifact_name }}.zip
+            ${{ matrix.artifact_name }}.dmg
+          if-no-files-found: error
+
+      - name: Upload artifact (Windows)
+        if: matrix.runner == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: stage/
+          if-no-files-found: error
+
+      - name: Upload artifact (Linux)
+        if: matrix.runner == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: build/bin/composer-bridge
+          if-no-files-found: error
+
+  package:
+    name: Package release bundle
+    needs: matrix-build
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_NAME" == *-rc* || "$GITHUB_REF_NAME" == *-beta* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: find artifacts -type f | sort
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 zip unzip jq
+          curl -fsSL -o /tmp/appimagetool \
+            "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x /tmp/appimagetool
+          sudo mv /tmp/appimagetool /usr/local/bin/appimagetool
+
+      - name: Stage release dir
+        run: mkdir -p release
+
+      - name: Stage macOS artifacts
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          cp artifacts/bridge-darwin-arm64/bridge-darwin-arm64.dmg \
+             "release/Composer-Bridge-${VERSION}-darwin-arm64.dmg"
+          cp artifacts/bridge-darwin-amd64/bridge-darwin-amd64.dmg \
+             "release/Composer-Bridge-${VERSION}-darwin-amd64.dmg"
+          cp artifacts/bridge-darwin-arm64/bridge-darwin-arm64.zip \
+             "release/composer-bridge-${VERSION}-darwin-arm64.zip"
+          cp artifacts/bridge-darwin-amd64/bridge-darwin-amd64.zip \
+             "release/composer-bridge-${VERSION}-darwin-amd64.zip"
+
+      - name: Stage Windows artifacts
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -f artifacts/bridge-windows-amd64/composer-bridge-setup.exe ]; then
+            cp artifacts/bridge-windows-amd64/composer-bridge-setup.exe \
+               "release/Composer-Bridge-${VERSION}-Setup.exe"
+          fi
+          # Always ship the portable .zip too.
+          (cd artifacts/bridge-windows-amd64 && zip -q "${GITHUB_WORKSPACE}/release/composer-bridge-${VERSION}-windows-amd64.zip" composer-bridge.exe)
+
+      - name: Build Linux AppImage + tarball
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          APPDIR="composer-bridge.AppDir"
+          mkdir -p "$APPDIR/usr/bin"
+          cp artifacts/bridge-linux-amd64/composer-bridge "$APPDIR/usr/bin/composer-bridge"
+          chmod +x "$APPDIR/usr/bin/composer-bridge"
+          cp build/appicon.png "$APPDIR/composer-bridge.png"
+          cat > "$APPDIR/composer-bridge.desktop" <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=Composer Bridge
+          Exec=composer-bridge
+          Icon=composer-bridge
+          Categories=AudioVideo;Audio;
+          Terminal=false
+          EOF
+          cat > "$APPDIR/AppRun" <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/composer-bridge" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+          ARCH=x86_64 appimagetool --no-appstream "$APPDIR" \
+            "release/composer-bridge-${VERSION}-linux-amd64.AppImage"
+          tar -C artifacts/bridge-linux-amd64 -czf \
+            "release/composer-bridge-${VERSION}-linux-amd64.tar.gz" composer-bridge
+
+      - name: Copy install script
+        run: |
+          if [ -f installer/install.sh ]; then
+            cp installer/install.sh release/install.sh
+            chmod +x release/install.sh
+          fi
+
+      - name: Generate manifest.json
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/boidushya/composer-bridge/releases/download/${TAG}"
+          RELEASED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          ARM64_ASSET="Composer-Bridge-${VERSION}-darwin-arm64.dmg"
+          AMD64_ASSET="Composer-Bridge-${VERSION}-darwin-amd64.dmg"
+          LINUX_ASSET="composer-bridge-${VERSION}-linux-amd64.AppImage"
+          WIN_ASSET="Composer-Bridge-${VERSION}-Setup.exe"
+          if [ ! -f "release/$WIN_ASSET" ]; then
+            WIN_ASSET="composer-bridge-${VERSION}-windows-amd64.zip"
+          fi
+
+          ARM64_SHA="$(sha256sum "release/$ARM64_ASSET" | awk '{print $1}')"
+          AMD64_SHA="$(sha256sum "release/$AMD64_ASSET" | awk '{print $1}')"
+          LINUX_SHA="$(sha256sum "release/$LINUX_ASSET" | awk '{print $1}')"
+          WIN_SHA="$(sha256sum "release/$WIN_ASSET" | awk '{print $1}')"
+
+          NOTES="$(git tag -l --format='%(contents)' "$TAG" 2>/dev/null || echo "")"
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg released_at "$RELEASED_AT" \
+            --arg notes "$NOTES" \
+            --arg arm64_url "$BASE/$ARM64_ASSET" \
+            --arg arm64_sha "$ARM64_SHA" \
+            --arg amd64_url "$BASE/$AMD64_ASSET" \
+            --arg amd64_sha "$AMD64_SHA" \
+            --arg linux_url "$BASE/$LINUX_ASSET" \
+            --arg linux_sha "$LINUX_SHA" \
+            --arg win_url "$BASE/$WIN_ASSET" \
+            --arg win_sha "$WIN_SHA" \
+            '{
+              version: $version,
+              released_at: $released_at,
+              notes: $notes,
+              assets: {
+                darwin: {
+                  arm64: { url: $arm64_url, sha256: $arm64_sha },
+                  amd64: { url: $amd64_url, sha256: $amd64_sha }
+                },
+                linux: {
+                  amd64: { url: $linux_url, sha256: $linux_sha }
+                },
+                windows: {
+                  amd64: { url: $win_url, sha256: $win_sha }
+                }
+              }
+            }' > release/manifest.json
+          cat release/manifest.json
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: release/
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: release
+
+      - name: List release assets
+        run: ls -la release/
+
+      - name: Extract tag annotation
+        id: notes
+        run: |
+          {
+            echo "body<<EOF"
+            git tag -l --format='%(contents)' "${GITHUB_REF_NAME}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.body }}
+          prerelease: ${{ needs.package.outputs.prerelease == 'true' }}
+          files: |
+            release/*
+          fail_on_unmatched_files: true
