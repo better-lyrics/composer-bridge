@@ -1,4 +1,4 @@
-module github.com/boidushya/composer-bridge
+module github.com/better-lyrics/composer-bridge
 
 go 1.25.0
 
