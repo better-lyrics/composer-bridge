@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -92,15 +93,17 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Bridge-Version", h.Bridge)
 	if track != nil {
+		// HTTP headers are Latin-1 by spec; raw UTF-8 gets mojibake'd in the browser.
+		// Percent-encode so the client can decodeURIComponent it back to the original string.
 		w.Header().Set("Access-Control-Expose-Headers", "X-Track-Title, X-Track-Artist, X-Track-Album, X-Bridge-Version")
 		if track.Title != "" {
-			w.Header().Set("X-Track-Title", track.Title)
+			w.Header().Set("X-Track-Title", url.PathEscape(track.Title))
 		}
 		if track.Artist != "" {
-			w.Header().Set("X-Track-Artist", track.Artist)
+			w.Header().Set("X-Track-Artist", url.PathEscape(track.Artist))
 		}
 		if track.Album != "" {
-			w.Header().Set("X-Track-Album", track.Album)
+			w.Header().Set("X-Track-Album", url.PathEscape(track.Album))
 		}
 	}
 	tw := &trackingWriter{rw: w}
