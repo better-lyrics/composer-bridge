@@ -20,6 +20,17 @@ import (
 	"github.com/better-lyrics/composer-bridge/internal/config"
 	"github.com/better-lyrics/composer-bridge/internal/library"
 	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
+
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+// activeApp holds the most recently Startup-ed App so package-level callers
+// (Wails SingleInstanceLock handler, tray callbacks) can reach it without an
+// explicit handle. Reads happen from arbitrary goroutines so the registry is
+// guarded by activeMu.
+var (
+	activeMu  sync.RWMutex
+	activeApp *App
 )
 
 // App wires the bridge's storage and config into Wails-callable methods.
@@ -35,6 +46,7 @@ type App struct {
 	logPath     string
 	version     string
 	ctx         context.Context
+	hideWindow  func(context.Context)
 	mu          sync.RWMutex
 	cfg         config.Config
 	downloadDir string
@@ -54,6 +66,7 @@ func New(lib *library.Library, act *activity.Log, cfg config.Config, cfgPath, da
 		downloadDir: resolveDownloadDir(cfg.DownloadDir),
 		logPath:     filepath.Join(dataDir, "bridge.log"),
 		version:     version,
+		hideWindow:  wailsRuntime.WindowHide,
 	}
 }
 
@@ -69,12 +82,41 @@ func resolveDownloadDir(configured string) string {
 }
 
 // Startup stashes the Wails runtime context so later methods can emit events to JS.
+// It also registers the App as the package-level active instance so callbacks
+// without an explicit handle (SingleInstanceLock, tray menu items) can reach it.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+	activeMu.Lock()
+	activeApp = a
+	activeMu.Unlock()
 }
 
 // Shutdown is a no-op: library and activity handles are owned by main.go.
 func (a *App) Shutdown(_ context.Context) {}
+
+// Ctx returns the Wails runtime context captured in Startup. May be nil before
+// Startup runs.
+func (a *App) Ctx() context.Context {
+	return a.ctx
+}
+
+// OnBeforeClose is wired into options.App.OnBeforeClose. Returning true tells
+// Wails to NOT quit the app: we hide the window and stay running in the tray.
+func (a *App) OnBeforeClose(_ context.Context) bool {
+	if a.ctx != nil && a.hideWindow != nil {
+		a.hideWindow(a.ctx)
+	}
+	return true
+}
+
+// Active returns the most recently Startup-ed App, or nil if none has started.
+// Safe for concurrent use; intended for Wails callbacks (SingleInstanceLock,
+// tray handlers) that have no direct handle to the App instance.
+func Active() *App {
+	activeMu.RLock()
+	defer activeMu.RUnlock()
+	return activeApp
+}
 
 // ListTracks returns every track, newest import first.
 func (a *App) ListTracks() ([]library.Track, error) {

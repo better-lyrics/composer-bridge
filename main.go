@@ -106,25 +106,36 @@ func main() {
 
 	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
 	err = wails.Run(&options.App{
-		Title:            "Composer Bridge",
-		Width:            1024,
-		Height:           700,
-		MinWidth:         800,
-		MinHeight:        540,
-		AssetServer:      &assetserver.Options{Assets: assets},
-		BackgroundColour: &options.RGBA{R: 0x28, G: 0x29, B: 0x2c, A: 255},
+		Title:             "Composer Bridge",
+		Width:             1024,
+		Height:            700,
+		MinWidth:          800,
+		MinHeight:         540,
+		AssetServer:       &assetserver.Options{Assets: assets},
+		BackgroundColour:  &options.RGBA{R: 0x28, G: 0x29, B: 0x2c, A: 255},
+		StartHidden:       false,
+		HideWindowOnClose: true,
 		Mac: &mac.Options{
 			TitleBar:             mac.TitleBarHiddenInset(),
 			Appearance:           mac.NSAppearanceNameDarkAqua,
 			WebviewIsTransparent: true,
 			WindowIsTranslucent:  false,
 		},
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: "dev.boidu.composer-bridge.single-instance",
+			OnSecondInstanceLaunch: func(_ options.SecondInstanceData) {
+				if active := app.Active(); active != nil && active.Ctx() != nil {
+					wailsRuntime.WindowShow(active.Ctx())
+				}
+			},
+		},
 		OnStartup: func(ctx context.Context) {
 			a.Startup(ctx)
 			handlers.EmitterCtx = ctx
 		},
-		OnShutdown: a.Shutdown,
-		Bind:       []any{a},
+		OnBeforeClose: a.OnBeforeClose,
+		OnShutdown:    a.Shutdown,
+		Bind:          []any{a},
 	})
 	if err != nil {
 		fatal("wails: %v", err)

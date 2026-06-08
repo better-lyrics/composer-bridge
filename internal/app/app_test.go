@@ -338,3 +338,24 @@ func TestShutdown_IsNoOp(t *testing.T) {
 		t.Errorf("ListTracks after Shutdown: %v (should still work)", err)
 	}
 }
+
+func TestOnBeforeCloseHidesInsteadOfQuitting(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	a.Startup(context.Background())
+	hidden := false
+	a.hideWindow = func(ctx context.Context) { hidden = true }
+	if got := a.OnBeforeClose(context.Background()); !got {
+		t.Errorf("OnBeforeClose should return true (prevent quit), got false")
+	}
+	if !hidden {
+		t.Errorf("OnBeforeClose should have invoked hideWindow")
+	}
+}
+
+func TestActiveReturnsTheStartedUpApp(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	a.Startup(context.Background())
+	if Active() != a {
+		t.Errorf("Active() should return the most recently started-up App")
+	}
+}
