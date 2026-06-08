@@ -82,24 +82,24 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   }, [selectedVideoId]);
 
   useEffect(() => {
-    if (isOpen && !present) {
+    if (isOpen) {
       setPresent(true);
-      let inner = 0;
-      const outer = requestAnimationFrame(() => {
-        inner = requestAnimationFrame(() => setEnterPhase(true));
+      let cancelled = false;
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        requestAnimationFrame(() => {
+          if (cancelled) return;
+          setEnterPhase(true);
+        });
       });
       return () => {
-        cancelAnimationFrame(outer);
-        if (inner) cancelAnimationFrame(inner);
+        cancelled = true;
       };
     }
-    if (!isOpen && present) {
-      setEnterPhase(false);
-      const t = setTimeout(() => setPresent(false), TRANSITION_MS);
-      return () => clearTimeout(t);
-    }
-    return undefined;
-  }, [isOpen, present]);
+    setEnterPhase(false);
+    const t = setTimeout(() => setPresent(false), TRANSITION_MS);
+    return () => clearTimeout(t);
+  }, [isOpen]);
 
   if (!present) return null;
 
