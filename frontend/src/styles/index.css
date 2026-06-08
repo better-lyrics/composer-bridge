@@ -53,6 +53,7 @@ html {
 
 html {
   height: 100%;
+  overflow: hidden;
 }
 
 body,
@@ -62,7 +63,12 @@ body,
   background-color: var(--color-composer-bg);
   color: var(--color-composer-text);
   font-family: var(--font-family-sans);
-  overscroll-behavior: contain;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+* {
+  overscroll-behavior: none;
 }
 
 ::selection {
