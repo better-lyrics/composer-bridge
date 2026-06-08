@@ -3,9 +3,12 @@ package ytdlp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -20,12 +23,20 @@ import (
 const BridgeVersion = "0.1.0"
 
 const (
-	ytdlpLatestAPI      = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
 	ytdlpRefreshEvery   = 24 * time.Hour
 	ytdlpFetchTimeout   = 2 * time.Minute
 	ytdlpVersionTimeout = 5 * time.Second
 	githubAPITimeout    = 15 * time.Second
+	retryMaxAttempts    = 3
 )
+
+// ytdlpLatestAPI is the GitHub Releases endpoint. Declared as var so tests can
+// redirect it at an httptest.Server.URL via t.Cleanup.
+var ytdlpLatestAPI = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
+
+// retryBackoffBase is the first-attempt backoff before exponential growth.
+// Declared as var so tests can shrink it to keep the suite fast.
+var retryBackoffBase = 500 * time.Millisecond
 
 func ytdlpAssetName() (string, error) { return resolveAssetName(runtime.GOOS, runtime.GOARCH) }
 
@@ -82,25 +93,101 @@ type ghRelease struct {
 	Assets  []ghAsset `json:"assets"`
 }
 
-func fetchLatestRelease() (*ghRelease, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), githubAPITimeout)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ytdlpLatestAPI, nil)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "composer-bridge/"+BridgeVersion)
-	resp, err := http.DefaultClient.Do(req)
+// retryableHTTPError marks an HTTP status code as worth retrying. 5xx are
+// transient; 4xx are terminal.
+type retryableHTTPError struct{ status int }
+
+func (e *retryableHTTPError) Error() string { return fmt.Sprintf("http %d", e.status) }
+
+// isRetryable decides whether an error from doHTTPGet warrants another attempt.
+// 5xx responses and network-layer failures (net.OpError, context deadline) are
+// retryable; 4xx responses are not.
+func isRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	var httpErr *retryableHTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.status >= 500 && httpErr.status <= 599
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	return false
+}
+
+// withRetry runs op up to retryMaxAttempts times with exponential backoff plus
+// jitter on each retryable failure. The first retry waits retryBackoffBase, the
+// second waits 2x that with up to 50% jitter, etc. Non-retryable errors return
+// immediately.
+func withRetry(op func() error) error {
+	var err error
+	for attempt := 0; attempt < retryMaxAttempts; attempt++ {
+		err = op()
+		if err == nil {
+			return nil
+		}
+		if !isRetryable(err) {
+			return err
+		}
+		if attempt == retryMaxAttempts-1 {
+			break
+		}
+		delay := retryBackoffBase * time.Duration(1<<attempt)
+		if attempt > 0 {
+			jitter := time.Duration(rand.Int63n(int64(delay / 2)))
+			delay += jitter
+		}
+		time.Sleep(delay)
+	}
+	return err
+}
+
+// fetchLatestRelease GETs apiURL (a GitHub Releases endpoint) with retries and
+// returns the decoded release payload.
+func fetchLatestRelease(apiURL string) (*ghRelease, error) {
+	var rel ghRelease
+	err := withRetry(func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), githubAPITimeout)
+		defer cancel()
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", "composer-bridge/"+BridgeVersion)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return &retryableHTTPError{status: resp.StatusCode}
+		}
+		rel = ghRelease{}
+		return json.NewDecoder(resp.Body).Decode(&rel)
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("github API: %d", resp.StatusCode)
-	}
-	var rel ghRelease
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
-		return nil, err
-	}
 	return &rel, nil
+}
+
+// downloadAsset GETs assetURL with retries and copies the body into binPath.
+func downloadAsset(assetURL, binPath string) error {
+	return withRetry(func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), ytdlpFetchTimeout)
+		defer cancel()
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
+		req.Header.Set("User-Agent", "composer-bridge/"+BridgeVersion)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return &retryableHTTPError{status: resp.StatusCode}
+		}
+		return installBinary(binPath, resp.Body)
+	})
 }
 
 func downloadLatest(binPath string) error {
@@ -108,7 +195,7 @@ func downloadLatest(binPath string) error {
 	if err != nil {
 		return err
 	}
-	rel, err := fetchLatestRelease()
+	rel, err := fetchLatestRelease(ytdlpLatestAPI)
 	if err != nil {
 		return err
 	}
@@ -116,20 +203,7 @@ func downloadLatest(binPath string) error {
 	if idx < 0 {
 		return fmt.Errorf("asset %q not found in release %s", assetName, rel.TagName)
 	}
-	assetURL := rel.Assets[idx].DownloadURL
-	ctx, cancel := context.WithTimeout(context.Background(), ytdlpFetchTimeout)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
-	req.Header.Set("User-Agent", "composer-bridge/"+BridgeVersion)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download %s: %d", assetURL, resp.StatusCode)
-	}
-	if err := installBinary(binPath, resp.Body); err != nil {
+	if err := downloadAsset(rel.Assets[idx].DownloadURL, binPath); err != nil {
 		return err
 	}
 	slog.Info("yt-dlp installed", "version", rel.TagName, "path", binPath)
@@ -168,9 +242,13 @@ func Version(ytdlpPath string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// RefreshDaily blocks until ctx is cancelled, upgrading yt-dlp on a 24-hour tick.
-// Failures are logged at warn level and never fatal.
+// RefreshDaily runs an immediate check on call, then polls every 24h until
+// ctx is cancelled. Failures are logged at warn level and never fatal. The
+// boot-time check matters: with no immediate run, restarts shorter than 24h
+// (typical for a desktop app) would never trigger a refresh and YouTube
+// extractor breakages would linger.
 func RefreshDaily(ctx context.Context, dataDir string) {
+	refreshIfNewer(dataDir)
 	tick := time.NewTicker(ytdlpRefreshEvery)
 	defer tick.Stop()
 	for {
@@ -183,23 +261,27 @@ func RefreshDaily(ctx context.Context, dataDir string) {
 	}
 }
 
+// refreshIfNewer fetches the latest GitHub release and redownloads when the
+// local binary is stale or unrunnable. If Version returns "unknown", the
+// existing binary is unrunnable; redownload to recover rather than skipping.
 func refreshIfNewer(dataDir string) {
 	binPath, err := binaryPath(dataDir)
 	if err != nil {
-		slog.Warn("yt-dlp daily check: resolve path", "err", err)
+		slog.Warn("yt-dlp daily check: resolve path", "err", err, "dataDir", dataDir)
 		return
 	}
-	rel, err := fetchLatestRelease()
+	rel, err := fetchLatestRelease(ytdlpLatestAPI)
 	if err != nil {
-		slog.Warn("yt-dlp daily check: fetch release", "err", err)
+		slog.Warn("yt-dlp daily check: fetch release", "err", err, "binPath", binPath, "dataDir", dataDir)
 		return
 	}
 	current := Version(binPath)
-	if current == rel.TagName || current == "unknown" {
+	if current == rel.TagName {
 		return
 	}
 	slog.Info("yt-dlp upgrade", "from", current, "to", rel.TagName)
 	if err := downloadLatest(binPath); err != nil {
-		slog.Warn("yt-dlp upgrade failed", "err", err)
+		assetName, _ := ytdlpAssetName()
+		slog.Warn("yt-dlp upgrade failed", "err", err, "binPath", binPath, "assetName", assetName, "dataDir", dataDir)
 	}
 }

@@ -40,8 +40,10 @@ func readFixture(t *testing.T, name string) []byte {
 	return raw
 }
 
-// echoFixtureScript writes the fixture into a temp file and the script cats it
-// to stdout. Avoids quoting issues with embedded JSON.
+// echoFixtureScript writes the fixture into a temp file and returns a fake
+// yt-dlp script that cats it to stdout. Routes through writeFakeYtdlp so it
+// inherits the same Windows skip and the script ends up next to the fixture
+// file under the same TempDir tree.
 func echoFixtureScript(t *testing.T, fixture string) string {
 	t.Helper()
 	raw := readFixture(t, fixture)
@@ -50,12 +52,7 @@ func echoFixtureScript(t *testing.T, fixture string) string {
 	if err := os.WriteFile(jsonPath, raw, 0o644); err != nil {
 		t.Fatalf("write fixture copy: %v", err)
 	}
-	path := filepath.Join(dir, "yt-dlp")
-	script := "#!/bin/sh\ncat " + jsonPath + "\n"
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake yt-dlp: %v", err)
-	}
-	return path
+	return writeFakeYtdlp(t, "cat "+jsonPath)
 }
 
 func TestFetchInfo_MusicFixture(t *testing.T) {
