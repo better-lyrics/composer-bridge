@@ -20,7 +20,7 @@ const ActivityView: React.FC = () => {
   const { entries, loading } = useActivity(Number(limit));
   const { tracks } = useLibrary();
   const sorted = useMemo(
-    () => entries.toSorted((a, b) => b.StartedAt - a.StartedAt),
+    () => entries.toSorted((a, b) => b.started_at - a.started_at),
     [entries],
   );
 
@@ -43,7 +43,7 @@ const ActivityView: React.FC = () => {
         <div className="flex flex-col gap-2">
           {sorted.map((entry) => (
             <ActivityRow
-              key={entry.ID}
+              key={entry.id}
               entry={entry}
               trackTitle={titleForEntry(entry, tracks)}
             />

@@ -7,13 +7,13 @@ let bindings: AppBindings;
 
 function entry(overrides: Record<string, unknown> = {}) {
   return {
-    ID: 1,
-    Kind: "audio_download",
-    VideoID: "RgKAFK5djSk",
-    StartedAt: Date.now() - 5000,
-    EndedAt: 0,
-    Status: "running",
-    Message: "",
+    id: 1,
+    kind: "audio_download",
+    video_id: "RgKAFK5djSk",
+    started_at: Date.now() - 5000,
+    ended_at: 0,
+    status: "running",
+    message: "",
     ...overrides,
   };
 }
@@ -30,8 +30,8 @@ afterEach(() => {
 describe("ActivityView", () => {
   it("renders a row for each entry", async () => {
     bindings.RecentActivity.mockResolvedValue([
-      entry({ ID: 1, Status: "ok", EndedAt: Date.now() }),
-      entry({ ID: 2, Kind: "import", VideoID: "ZEcqHA7dbwM", Status: "ok" }),
+      entry({ id: 1, status: "ok", ended_at: Date.now() }),
+      entry({ id: 2, kind: "import", video_id: "ZEcqHA7dbwM", status: "ok" }),
     ]);
     render(<ActivityView />);
     await waitFor(() => {
@@ -40,7 +40,7 @@ describe("ActivityView", () => {
   });
 
   it("running entry shows spinning loader", async () => {
-    bindings.RecentActivity.mockResolvedValue([entry({ Status: "running" })]);
+    bindings.RecentActivity.mockResolvedValue([entry({ status: "running" })]);
     render(<ActivityView />);
     await waitFor(() => {
       const row = screen.getByTestId("activity-row");
@@ -50,7 +50,7 @@ describe("ActivityView", () => {
   });
 
   it("ok entry shows a check icon in bl-red", async () => {
-    bindings.RecentActivity.mockResolvedValue([entry({ Status: "ok" })]);
+    bindings.RecentActivity.mockResolvedValue([entry({ status: "ok" })]);
     render(<ActivityView />);
     await waitFor(() => {
       const row = screen.getByTestId("activity-row");
@@ -61,7 +61,7 @@ describe("ActivityView", () => {
 
   it("error entry shows rose-toned icon and surfaces the message", async () => {
     bindings.RecentActivity.mockResolvedValue([
-      entry({ Status: "error", Message: "yt-dlp boom" }),
+      entry({ status: "error", message: "yt-dlp boom" }),
     ]);
     render(<ActivityView />);
     await waitFor(() => {

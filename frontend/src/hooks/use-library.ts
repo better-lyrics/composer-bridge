@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ListTracks } from "../../wailsjs/go/main/App";
+import { ListTracks } from "../../wailsjs/go/app/App";
 import type { library } from "../../wailsjs/go/models";
 import { useUIStore, type LibrarySort } from "@/stores/ui-store";
 
@@ -7,15 +7,15 @@ import { useUIStore, type LibrarySort } from "@/stores/ui-store";
 
 function sortTracks(tracks: library.Track[], sort: LibrarySort): library.Track[] {
   if (sort === "recent") {
-    return tracks.toSorted((a, b) => b.ImportedAt - a.ImportedAt);
+    return tracks.toSorted((a, b) => b.imported_at - a.imported_at);
   }
   if (sort === "title") {
-    return tracks.toSorted((a, b) => a.Title.localeCompare(b.Title));
+    return tracks.toSorted((a, b) => a.title.localeCompare(b.title));
   }
   if (sort === "artist") {
-    return tracks.toSorted((a, b) => a.Artist.localeCompare(b.Artist));
+    return tracks.toSorted((a, b) => a.artist.localeCompare(b.artist));
   }
-  return tracks.toSorted((a, b) => a.DurationSec - b.DurationSec);
+  return tracks.toSorted((a, b) => a.duration_sec - b.duration_sec);
 }
 
 function filterTracks(tracks: library.Track[], search: string): library.Track[] {
@@ -23,9 +23,9 @@ function filterTracks(tracks: library.Track[], search: string): library.Track[] 
   const needle = search.trim().toLowerCase();
   return tracks.filter(
     (t) =>
-      t.Title.toLowerCase().includes(needle) ||
-      t.Artist.toLowerCase().includes(needle) ||
-      t.Album.toLowerCase().includes(needle),
+      t.title.toLowerCase().includes(needle) ||
+      t.artist.toLowerCase().includes(needle) ||
+      t.album.toLowerCase().includes(needle),
   );
 }
 

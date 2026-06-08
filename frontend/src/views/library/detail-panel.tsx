@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { IconBrandYoutube, IconExternalLink, IconTrash, IconDownload, IconX } from "@tabler/icons-react";
-import { GetTrack, OpenInComposer, OpenInYouTube, RemoveTrack } from "../../../wailsjs/go/main/App";
+import { GetTrack, OpenInComposer, OpenInYouTube, RemoveTrack } from "../../../wailsjs/go/app/App";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
 import type { library } from "../../../wailsjs/go/models";
 import { useUIStore } from "@/stores/ui-store";
@@ -52,7 +52,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   const openComposer = async () => {
     if (!track) return;
     try {
-      const url = await OpenInComposer(track.VideoID);
+      const url = await OpenInComposer(track.video_id);
       BrowserOpenURL(url);
     } catch (err) {
       console.error("OpenInComposer failed", err);
@@ -62,7 +62,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   const openYouTube = async () => {
     if (!track) return;
     try {
-      const url = await OpenInYouTube(track.VideoID);
+      const url = await OpenInYouTube(track.video_id);
       BrowserOpenURL(url);
     } catch (err) {
       console.error("OpenInYouTube failed", err);
@@ -72,7 +72,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   const handleRemoveConfirmed = async () => {
     if (!track) return;
     try {
-      await RemoveTrack(track.VideoID);
+      await RemoveTrack(track.video_id);
     } catch (err) {
       console.error("RemoveTrack failed", err);
     }
@@ -81,7 +81,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
     onRemoved();
   };
 
-  const aspectClass = track?.IsMusic ? "aspect-square" : "aspect-video";
+  const aspectClass = track?.is_music ? "aspect-square" : "aspect-video";
 
   return (
     <>
@@ -114,39 +114,39 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
           <div className="flex flex-col gap-4 overflow-y-auto">
             <div className={cn("w-full overflow-hidden rounded-md bg-surface-elevated", aspectClass)}>
               <img
-                src={`${BRIDGE_THUMB_BASE}/${track.VideoID}`}
+                src={`${BRIDGE_THUMB_BASE}/${track.video_id}`}
                 alt=""
                 className="h-full w-full object-cover"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <h2 className="text-base font-semibold text-text select-text">{track.Title}</h2>
-              <p className="text-sm text-text-muted select-text">{track.Artist || "Unknown artist"}</p>
+              <h2 className="text-base font-semibold text-text select-text">{track.title}</h2>
+              <p className="text-sm text-text-muted select-text">{track.artist || "Unknown artist"}</p>
             </div>
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
-              {track.Album && (
+              {track.album && (
                 <>
                   <dt className="text-text-muted">Album</dt>
-                  <dd className="text-text select-text">{track.Album}</dd>
+                  <dd className="text-text select-text">{track.album}</dd>
                 </>
               )}
               <dt className="text-text-muted">Duration</dt>
-              <dd className="text-text select-text">{formatDuration(track.DurationSec)}</dd>
-              {track.ReleaseYear > 0 && (
+              <dd className="text-text select-text">{formatDuration(track.duration_sec)}</dd>
+              {track.release_year > 0 && (
                 <>
                   <dt className="text-text-muted">Released</dt>
-                  <dd className="text-text select-text">{track.ReleaseYear}</dd>
+                  <dd className="text-text select-text">{track.release_year}</dd>
                 </>
               )}
-              {track.MusicType && (
+              {track.music_type && (
                 <>
                   <dt className="text-text-muted">Type</dt>
-                  <dd className="text-text select-text">{track.MusicType}</dd>
+                  <dd className="text-text select-text">{track.music_type}</dd>
                 </>
               )}
               <dt className="text-text-muted">Source</dt>
-              <dd className="truncate text-text select-text" title={track.SourceURL}>
-                {track.SourceURL}
+              <dd className="truncate text-text select-text" title={track.source_url}>
+                {track.source_url}
               </dd>
             </dl>
             <div className="mt-2 flex flex-col gap-2">
@@ -160,7 +160,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
                 )}
               >
                 <IconDownload size={14} />
-                {track.AudioPath === "" ? "Download audio" : "Audio downloaded"}
+                {track.audio_path === "" ? "Download audio" : "Audio downloaded"}
               </button>
               <button
                 type="button"

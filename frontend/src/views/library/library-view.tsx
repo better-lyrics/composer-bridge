@@ -92,7 +92,7 @@ const LibraryView: React.FC = () => {
           style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
         >
           {tracks.map((track) => (
-            <TrackCard key={track.VideoID} track={track} onSelect={setSelected} />
+            <TrackCard key={track.video_id} track={track} onSelect={setSelected} />
           ))}
         </div>
       )}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BridgeVersion } from "../../../wailsjs/go/main/App";
+import { BridgeVersion } from "../../../wailsjs/go/app/App";
 import { useConfig } from "@/hooks/use-config";
 import { NetworkingSection } from "@/views/settings/sections/networking-section";
 import { YtdlpSection } from "@/views/settings/sections/ytdlp-section";

@@ -8,3 +8,4 @@ frontend/wailsjs/
 *.test
 coverage.out
 dist/
+frontend/package.json.md5

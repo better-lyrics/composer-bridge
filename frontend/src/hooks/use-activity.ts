@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { RecentActivity } from "../../wailsjs/go/main/App";
+import { RecentActivity } from "../../wailsjs/go/app/App";
 import { EventsOn, EventsOff } from "../../wailsjs/runtime/runtime";
 import type { activity } from "../../wailsjs/go/models";
 
@@ -46,7 +46,7 @@ export function useActivity(limit: number): UseActivityResult {
   useEffect(() => {
     const handler = (entry: activity.Entry) => {
       setEntries((prev) => {
-        const next = [entry, ...prev.filter((e) => e.ID !== entry.ID)];
+        const next = [entry, ...prev.filter((e) => e.id !== entry.id)];
         return next.slice(0, limitRef.current);
       });
     };

@@ -39,13 +39,13 @@ const (
 
 // Entry is one persisted activity row. StartedAt and EndedAt are Unix epoch milliseconds; EndedAt is 0 while running.
 type Entry struct {
-	ID        int64
-	Kind      Kind
-	VideoID   string
-	StartedAt int64
-	EndedAt   int64
-	Status    Status
-	Message   string
+	ID        int64  `json:"id"`
+	Kind      Kind   `json:"kind"`
+	VideoID   string `json:"video_id"`
+	StartedAt int64  `json:"started_at"`
+	EndedAt   int64  `json:"ended_at"`
+	Status    Status `json:"status"`
+	Message   string `json:"message"`
 }
 
 // Log is a SQLite-backed append-only activity log with mutable end state. Safe for concurrent use.

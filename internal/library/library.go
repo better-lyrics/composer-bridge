@@ -13,21 +13,21 @@ var ErrNotFound = errors.New("track not found")
 
 // Track is one imported YouTube video. Optional metadata fields default to empty/0.
 type Track struct {
-	ID           int64
-	VideoID      string
-	Title        string
-	Artist       string
-	Album        string
-	ReleaseYear  int
-	DurationSec  int
-	ThumbnailURL string
-	ThumbPath    string
-	IsMusic      bool
-	MusicType    string
-	SourceURL    string
-	ImportedAt   int64
-	AudioPath    string
-	AudioSize    int64
+	ID           int64  `json:"id"`
+	VideoID      string `json:"video_id"`
+	Title        string `json:"title"`
+	Artist       string `json:"artist"`
+	Album        string `json:"album"`
+	ReleaseYear  int    `json:"release_year"`
+	DurationSec  int    `json:"duration_sec"`
+	ThumbnailURL string `json:"thumbnail_url"`
+	ThumbPath    string `json:"thumb_path"`
+	IsMusic      bool   `json:"is_music"`
+	MusicType    string `json:"music_type"`
+	SourceURL    string `json:"source_url"`
+	ImportedAt   int64  `json:"imported_at"`
+	AudioPath    string `json:"audio_path"`
+	AudioSize    int64  `json:"audio_size"`
 }
 
 // Library is a SQLite-backed store of imported tracks. Safe for concurrent use.

@@ -4,28 +4,28 @@ import { TrackCard } from "@/views/library/track-card";
 
 function makeTrack(overrides: Record<string, unknown> = {}) {
   return {
-    ID: 1,
-    VideoID: "RgKAFK5djSk",
-    Title: "Test Track",
-    Artist: "Test Artist",
-    Album: "",
-    ReleaseYear: 0,
-    DurationSec: 65,
-    ThumbnailURL: "",
-    ThumbPath: "",
-    IsMusic: true,
-    MusicType: "song",
-    SourceURL: "",
-    ImportedAt: 0,
-    AudioPath: "",
-    AudioSize: 0,
+    id: 1,
+    video_id: "RgKAFK5djSk",
+    title: "Test Track",
+    artist: "Test Artist",
+    album: "",
+    release_year: 0,
+    duration_sec: 65,
+    thumbnail_url: "",
+    thumb_path: "",
+    is_music: true,
+    music_type: "song",
+    source_url: "",
+    imported_at: 0,
+    audio_path: "",
+    audio_size: 0,
     ...overrides,
   } as unknown as Parameters<typeof TrackCard>[0]["track"];
 }
 
 describe("TrackCard", () => {
   it("music track renders with square aspect", () => {
-    render(<TrackCard track={makeTrack({ IsMusic: true })} onSelect={vi.fn()} />);
+    render(<TrackCard track={makeTrack({ is_music: true })} onSelect={vi.fn()} />);
     const wrapper = screen
       .getByRole("button")
       .querySelector(".aspect-square");
@@ -33,7 +33,7 @@ describe("TrackCard", () => {
   });
 
   it("video track renders with 16:9 aspect", () => {
-    render(<TrackCard track={makeTrack({ IsMusic: false })} onSelect={vi.fn()} />);
+    render(<TrackCard track={makeTrack({ is_music: false })} onSelect={vi.fn()} />);
     const wrapper = screen
       .getByRole("button")
       .querySelector(".aspect-video");
@@ -41,14 +41,14 @@ describe("TrackCard", () => {
   });
 
   it("metadata-only track shows Metadata only badge", () => {
-    render(<TrackCard track={makeTrack({ AudioPath: "" })} onSelect={vi.fn()} />);
+    render(<TrackCard track={makeTrack({ audio_path: "" })} onSelect={vi.fn()} />);
     expect(screen.getByText(/Metadata only/i)).toBeInTheDocument();
   });
 
   it("downloaded track shows Downloaded badge in bl-red", () => {
     render(
       <TrackCard
-        track={makeTrack({ AudioPath: "/tmp/audio.m4a" })}
+        track={makeTrack({ audio_path: "/tmp/audio.m4a" })}
         onSelect={vi.fn()}
       />,
     );

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { GetConfig, SaveConfig } from "../../wailsjs/go/main/App";
+import { GetConfig, SaveConfig } from "../../wailsjs/go/app/App";
 import type { config } from "../../wailsjs/go/models";
 import { useDebouncedCallback } from "@/hooks/use-debounced-callback";
 

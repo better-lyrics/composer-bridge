@@ -1,7 +1,7 @@
 import { vi, type Mock } from "vitest";
 import type { library, activity, config } from "../../wailsjs/go/models";
 
-// AppBindings mirrors the auto-generated wailsjs/go/main/App.d.ts surface.
+// AppBindings mirrors the auto-generated wailsjs/go/app/App.d.ts surface.
 // All fields are vi.fn() so tests can assert call shape and override returns.
 export interface AppBindings {
   ListTracks: Mock<() => Promise<library.Track[]>>;
@@ -51,8 +51,8 @@ export function setupWailsMock(overrides: Partial<AppBindings> = {}): AppBinding
     BridgeVersion: vi.fn().mockResolvedValue("0.1.0-test"),
     ...overrides,
   };
-  (window as unknown as { go: { main: { App: AppBindings } } }).go = {
-    main: { App: bindings },
+  (window as unknown as { go: { app: { App: AppBindings } } }).go = {
+    app: { App: bindings },
   };
   type EventBus = {
     EventsOn: Mock;

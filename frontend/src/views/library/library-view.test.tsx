@@ -6,21 +6,21 @@ import { setupWailsMock, resetWailsMock, type AppBindings } from "@/test/wails-m
 
 function makeTrack(overrides: Record<string, unknown> = {}) {
   return {
-    ID: 1,
-    VideoID: "RgKAFK5djSk",
-    Title: "Hey Jude",
-    Artist: "The Beatles",
-    Album: "",
-    ReleaseYear: 0,
-    DurationSec: 431,
-    ThumbnailURL: "",
-    ThumbPath: "",
-    IsMusic: true,
-    MusicType: "song",
-    SourceURL: "",
-    ImportedAt: 1000,
-    AudioPath: "",
-    AudioSize: 0,
+    id: 1,
+    video_id: "RgKAFK5djSk",
+    title: "Hey Jude",
+    artist: "The Beatles",
+    album: "",
+    release_year: 0,
+    duration_sec: 431,
+    thumbnail_url: "",
+    thumb_path: "",
+    is_music: true,
+    music_type: "song",
+    source_url: "",
+    imported_at: 1000,
+    audio_path: "",
+    audio_size: 0,
     ...overrides,
   };
 }
@@ -68,8 +68,8 @@ describe("LibraryView", () => {
 
   it("renders a card for every track with title, artist, and duration", async () => {
     bindings.ListTracks.mockResolvedValue([
-      makeTrack({ VideoID: "aaaaaaaaaaa", Title: "Alpha Song", Artist: "Alice", DurationSec: 60 }),
-      makeTrack({ VideoID: "bbbbbbbbbbb", Title: "Beta Tune", Artist: "Bob", DurationSec: 125 }),
+      makeTrack({ video_id: "aaaaaaaaaaa", title: "Alpha Song", artist: "Alice", duration_sec: 60 }),
+      makeTrack({ video_id: "bbbbbbbbbbb", title: "Beta Tune", artist: "Bob", duration_sec: 125 }),
     ]);
     render(<LibraryView />);
     await waitFor(() => {
@@ -84,7 +84,7 @@ describe("LibraryView", () => {
 
   it("clicking a card sets selectedVideoId in the store", async () => {
     bindings.ListTracks.mockResolvedValue([
-      makeTrack({ VideoID: "aaaaaaaaaaa", Title: "Alpha" }),
+      makeTrack({ video_id: "aaaaaaaaaaa", title: "Alpha" }),
     ]);
     render(<LibraryView />);
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
@@ -94,8 +94,8 @@ describe("LibraryView", () => {
 
   it("search filters cards by title case-insensitively", async () => {
     bindings.ListTracks.mockResolvedValue([
-      makeTrack({ VideoID: "aaaaaaaaaaa", Title: "Sunrise" }),
-      makeTrack({ VideoID: "bbbbbbbbbbb", Title: "Moonlight" }),
+      makeTrack({ video_id: "aaaaaaaaaaa", title: "Sunrise" }),
+      makeTrack({ video_id: "bbbbbbbbbbb", title: "Moonlight" }),
     ]);
     render(<LibraryView />);
     await waitFor(() => expect(screen.getByText("Sunrise")).toBeInTheDocument());
@@ -110,8 +110,8 @@ describe("LibraryView", () => {
 
   it("sort by title A-Z reorders the rendered cards", async () => {
     bindings.ListTracks.mockResolvedValue([
-      makeTrack({ VideoID: "aaaaaaaaaaa", Title: "Zebra", ImportedAt: 2000 }),
-      makeTrack({ VideoID: "bbbbbbbbbbb", Title: "Apple", ImportedAt: 1000 }),
+      makeTrack({ video_id: "aaaaaaaaaaa", title: "Zebra", imported_at: 2000 }),
+      makeTrack({ video_id: "bbbbbbbbbbb", title: "Apple", imported_at: 1000 }),
     ]);
     render(<LibraryView />);
     await waitFor(() => expect(screen.getByText("Apple")).toBeInTheDocument());
