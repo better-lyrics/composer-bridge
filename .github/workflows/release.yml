@@ -6,7 +6,7 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   matrix-build:
@@ -21,7 +21,7 @@ jobs:
             wails_platform: darwin/arm64
             artifact_name: bridge-darwin-arm64
           - label: darwin-amd64
-            runner: macos-15-intel
+            runner: macos-13
             wails_platform: darwin/amd64
             artifact_name: bridge-darwin-amd64
           - label: windows-amd64
@@ -48,7 +48,7 @@ jobs:
           cache: true
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4.1.0
         with:
           version: 9
 
@@ -103,10 +103,15 @@ jobs:
 
       - name: Build macOS DMG
         if: startsWith(matrix.label, 'darwin')
-        uses: L-Super/create-dmg-action@v1.0.4
-        with:
-          dmgName: ${{ matrix.artifact_name }}
-          src: build/bin/composer-bridge.app
+        shell: bash
+        run: |
+          set -euo pipefail
+          hdiutil create \
+            -volname "Composer Bridge" \
+            -srcfolder build/bin/composer-bridge.app \
+            -ov \
+            -format UDZO \
+            "${{ github.workspace }}/${{ matrix.artifact_name }}.dmg"
 
       - name: Stage Windows artifacts
         if: matrix.runner == 'windows-latest'
@@ -177,11 +182,15 @@ jobs:
         run: find artifacts -type f | sort
 
       - name: Install packaging tools
+        env:
+          APPIMAGETOOL_SHA256: b90f4a8b18967545fda78a445b27680a1642f1ef9488ced28b65398f2be7add2
         run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y libfuse2 zip unzip jq
           curl -fsSL -o /tmp/appimagetool \
             "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+          echo "${APPIMAGETOOL_SHA256}  /tmp/appimagetool" | sha256sum -c -
           chmod +x /tmp/appimagetool
           sudo mv /tmp/appimagetool /usr/local/bin/appimagetool
 
@@ -257,7 +266,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          BASE="https://github.com/boidushya/composer-bridge/releases/download/${TAG}"
+          BASE="https://github.com/better-lyrics/composer-bridge/releases/download/${TAG}"
           RELEASED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           ARM64_ASSET="Composer-Bridge-${VERSION}-darwin-arm64.dmg"
@@ -317,6 +326,8 @@ jobs:
     name: Publish GitHub Release
     needs: package
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -342,7 +353,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
