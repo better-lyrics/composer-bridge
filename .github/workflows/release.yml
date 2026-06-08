@@ -20,10 +20,10 @@ jobs:
             runner: macos-14
             wails_platform: darwin/arm64
             artifact_name: bridge-darwin-arm64
-          - label: darwin-amd64
-            runner: macos-13
-            wails_platform: darwin/amd64
-            artifact_name: bridge-darwin-amd64
+          - label: darwin-universal
+            runner: macos-14
+            wails_platform: darwin/universal
+            artifact_name: bridge-darwin-universal
           - label: windows-amd64
             runner: windows-latest
             wails_platform: windows/amd64
@@ -211,12 +211,12 @@ jobs:
           set -euo pipefail
           cp artifacts/bridge-darwin-arm64/bridge-darwin-arm64.dmg \
              "release/Composer-Bridge-${VERSION}-darwin-arm64.dmg"
-          cp artifacts/bridge-darwin-amd64/bridge-darwin-amd64.dmg \
-             "release/Composer-Bridge-${VERSION}-darwin-amd64.dmg"
+          cp artifacts/bridge-darwin-universal/bridge-darwin-universal.dmg \
+             "release/Composer-Bridge-${VERSION}-darwin-universal.dmg"
           cp artifacts/bridge-darwin-arm64/bridge-darwin-arm64.zip \
              "release/composer-bridge-${VERSION}-darwin-arm64.zip"
-          cp artifacts/bridge-darwin-amd64/bridge-darwin-amd64.zip \
-             "release/composer-bridge-${VERSION}-darwin-amd64.zip"
+          cp artifacts/bridge-darwin-universal/bridge-darwin-universal.zip \
+             "release/composer-bridge-${VERSION}-darwin-universal.zip"
 
       - name: Stage Windows artifacts
         env:
@@ -277,7 +277,7 @@ jobs:
           RELEASED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           ARM64_ASSET="Composer-Bridge-${VERSION}-darwin-arm64.dmg"
-          AMD64_ASSET="Composer-Bridge-${VERSION}-darwin-amd64.dmg"
+          UNIVERSAL_ASSET="Composer-Bridge-${VERSION}-darwin-universal.dmg"
           LINUX_ASSET="composer-bridge-${VERSION}-linux-amd64.AppImage"
           WIN_ASSET="Composer-Bridge-${VERSION}-Setup.exe"
           if [ ! -f "release/$WIN_ASSET" ]; then
@@ -285,7 +285,7 @@ jobs:
           fi
 
           ARM64_SHA="$(sha256sum "release/$ARM64_ASSET" | awk '{print $1}')"
-          AMD64_SHA="$(sha256sum "release/$AMD64_ASSET" | awk '{print $1}')"
+          UNIVERSAL_SHA="$(sha256sum "release/$UNIVERSAL_ASSET" | awk '{print $1}')"
           LINUX_SHA="$(sha256sum "release/$LINUX_ASSET" | awk '{print $1}')"
           WIN_SHA="$(sha256sum "release/$WIN_ASSET" | awk '{print $1}')"
 
@@ -297,8 +297,8 @@ jobs:
             --arg notes "$NOTES" \
             --arg arm64_url "$BASE/$ARM64_ASSET" \
             --arg arm64_sha "$ARM64_SHA" \
-            --arg amd64_url "$BASE/$AMD64_ASSET" \
-            --arg amd64_sha "$AMD64_SHA" \
+            --arg universal_url "$BASE/$UNIVERSAL_ASSET" \
+            --arg universal_sha "$UNIVERSAL_SHA" \
             --arg linux_url "$BASE/$LINUX_ASSET" \
             --arg linux_sha "$LINUX_SHA" \
             --arg win_url "$BASE/$WIN_ASSET" \
@@ -309,8 +309,9 @@ jobs:
               notes: $notes,
               assets: {
                 darwin: {
-                  arm64: { url: $arm64_url, sha256: $arm64_sha },
-                  amd64: { url: $amd64_url, sha256: $amd64_sha }
+                  arm64:     { url: $arm64_url,     sha256: $arm64_sha },
+                  amd64:     { url: $universal_url, sha256: $universal_sha },
+                  universal: { url: $universal_url, sha256: $universal_sha }
                 },
                 linux: {
                   amd64: { url: $linux_url, sha256: $linux_sha }
