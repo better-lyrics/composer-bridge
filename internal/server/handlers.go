@@ -65,7 +65,7 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	actID := h.startActivity(activity.KindAudioDownload, videoID)
 	w.Header().Set("Content-Type", audioContentType)
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Bridge-Version", ytdlp.BridgeVersion)
+	w.Header().Set("X-Bridge-Version", h.Bridge)
 	tw := &trackingWriter{rw: w}
 	err := ytdlp.StreamAudio(r.Context(), h.YtdlpPath, videoID, tw)
 	if err == nil {
@@ -167,17 +167,20 @@ func (h *Handlers) fetchAndCacheThumb(ctx context.Context, track *library.Track)
 		return "", fmt.Errorf("thumb http %d", resp.StatusCode)
 	}
 	dest := filepath.Join(h.ThumbDir, track.VideoID+".jpg")
-	f, err := os.Create(dest)
+	tmp, err := os.CreateTemp(h.ThumbDir, track.VideoID+".*.tmp")
 	if err != nil {
 		return "", err
 	}
-	if _, copyErr := io.Copy(f, resp.Body); copyErr != nil {
-		f.Close()
-		os.Remove(dest)
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, copyErr := io.Copy(tmp, resp.Body); copyErr != nil {
+		tmp.Close()
 		return "", copyErr
 	}
-	if err := f.Close(); err != nil {
-		os.Remove(dest)
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmpPath, dest); err != nil {
 		return "", err
 	}
 	if err := h.Library.SetThumbPath(track.VideoID, dest); err != nil {

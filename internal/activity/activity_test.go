@@ -486,6 +486,10 @@ func TestPersistence_StartInRun1EndInRun2(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
+	// Reopening the log flips the still-running row to error via
+	// RecoverStranded. A subsequent End on the same id must still succeed
+	// (the row exists, End overwrites status/message/ended_at) and the End
+	// call wins over the boot-time recovery state.
 	log2, err := Open(path)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
@@ -504,10 +508,10 @@ func TestPersistence_StartInRun1EndInRun2(t *testing.T) {
 		t.Fatalf("Recent: got %d, want 1", len(entries))
 	}
 	if entries[0].Status != StatusOK {
-		t.Errorf("Status: got %q, want %q", entries[0].Status, StatusOK)
+		t.Errorf("Status: got %q, want %q (run-2 End must overwrite the recovery-flipped error state)", entries[0].Status, StatusOK)
 	}
 	if entries[0].Message != "completed across restarts" {
-		t.Errorf("Message: got %q", entries[0].Message)
+		t.Errorf("Message: got %q (recovery message must not survive a subsequent End)", entries[0].Message)
 	}
 	if entries[0].EndedAt == 0 {
 		t.Errorf("EndedAt: got 0, want > 0")
@@ -609,4 +613,103 @@ func uniqueVideoID(i int) string {
 	b[len(b)-2] = byte('A' + (i / 26))
 	b[len(b)-1] = byte('A' + (i % 26))
 	return string(b)
+}
+
+func TestRecoverStranded_FlipsRunningToError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "activity.db")
+
+	log, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	id, err := log.Start(KindAudioDownload, "dQw4w9WgXcQ")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := log.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	log2, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer log2.Close()
+
+	entries, err := log2.Recent(10)
+	if err != nil {
+		t.Fatalf("Recent: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("Recent: got %d, want 1", len(entries))
+	}
+	e := entries[0]
+	if e.ID != id {
+		t.Errorf("ID: got %d, want %d", e.ID, id)
+	}
+	if e.Status != StatusError {
+		t.Errorf("Status: got %q, want %q", e.Status, StatusError)
+	}
+	if e.EndedAt == 0 {
+		t.Errorf("EndedAt: got 0, want != 0 (RecoverStranded sets ended_at = started_at)")
+	}
+	if e.EndedAt != e.StartedAt {
+		t.Errorf("EndedAt: got %d, want %d (== StartedAt)", e.EndedAt, e.StartedAt)
+	}
+	if !strings.Contains(e.Message, "stranded") {
+		t.Errorf("Message: got %q, want contains \"stranded\"", e.Message)
+	}
+}
+
+func TestRecoverStranded_DoesNotTouchEndedRows(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "activity.db")
+
+	log, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	id, err := log.Start(KindImport, "dQw4w9WgXcQ")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := log.End(id, StatusOK, "done"); err != nil {
+		t.Fatalf("End: %v", err)
+	}
+	if err := log.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	log2, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer log2.Close()
+
+	entries, err := log2.Recent(10)
+	if err != nil {
+		t.Fatalf("Recent: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("Recent: got %d, want 1", len(entries))
+	}
+	if entries[0].Status != StatusOK {
+		t.Errorf("Status: got %q, want %q (already-ended rows must not be touched)", entries[0].Status, StatusOK)
+	}
+	if entries[0].Message != "done" {
+		t.Errorf("Message: got %q, want %q", entries[0].Message, "done")
+	}
+}
+
+func TestRecoverStranded_NoRowsToRecoverIsZero(t *testing.T) {
+	log, _ := openTempLog(t)
+
+	n, err := log.RecoverStranded()
+	if err != nil {
+		t.Fatalf("RecoverStranded: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("recovered count: got %d, want 0", n)
+	}
 }

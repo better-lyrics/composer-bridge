@@ -17,7 +17,6 @@ import (
 
 	"github.com/boidushya/composer-bridge/internal/activity"
 	"github.com/boidushya/composer-bridge/internal/library"
-	"github.com/boidushya/composer-bridge/internal/ytdlp"
 )
 
 // -- Test helpers ---------------------------------------------------------------
@@ -211,8 +210,8 @@ func TestAudio_StreamsBytesWithLockedHeaders(t *testing.T) {
 	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
 		t.Errorf("cache-control: got %q, want no-store", got)
 	}
-	if got := resp.Header.Get("X-Bridge-Version"); got != ytdlp.BridgeVersion {
-		t.Errorf("x-bridge-version: got %q, want %q", got, ytdlp.BridgeVersion)
+	if got := resp.Header.Get("X-Bridge-Version"); got != env.handlers.Bridge {
+		t.Errorf("x-bridge-version: got %q, want %q", got, env.handlers.Bridge)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	if string(body) != "hello world" {
@@ -541,6 +540,63 @@ func TestThumb_OriginFailureReturns502(t *testing.T) {
 	}
 }
 
+func TestThumb_AtomicWriteLeavesNoPartialOnUpstreamMidStreamDisconnect(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("partial-bytes"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		if hj, ok := w.(http.Hijacker); ok {
+			conn, _, err := hj.Hijack()
+			if err == nil {
+				conn.Close()
+			}
+		}
+	}))
+	defer origin.Close()
+
+	env := newTestEnv(t, "/nonexistent")
+	seedTrack(t, env.lib, library.Track{
+		VideoID: "RgKAFK5djSk", Title: "x", DurationSec: 10,
+		ThumbnailURL: origin.URL + "/art.jpg", ThumbPath: "",
+		SourceURL: "https://www.youtube.com/watch?v=RgKAFK5djSk", ImportedAt: 1,
+	})
+
+	resp, err := http.Get(env.server.URL + "/thumb/RgKAFK5djSk")
+	if err == nil {
+		resp.Body.Close()
+	}
+
+	// The atomic write must leave NO <videoID>.jpg behind because io.Copy
+	// errored before the rename was attempted.
+	finalPath := filepath.Join(env.thumbDir, "RgKAFK5djSk.jpg")
+	if _, statErr := os.Stat(finalPath); !os.IsNotExist(statErr) {
+		t.Errorf("final thumb path %q exists after mid-stream disconnect; atomic write was not honored (statErr=%v)", finalPath, statErr)
+	}
+
+	// No .tmp leftovers should remain either (defer os.Remove handles it).
+	entries, err := os.ReadDir(env.thumbDir)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("ReadDir thumbDir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("temp file %q leaked in thumb dir after mid-stream disconnect", e.Name())
+		}
+	}
+
+	stored, err := env.lib.GetTrack("RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("GetTrack: %v", err)
+	}
+	if stored.ThumbPath != "" {
+		t.Errorf("ThumbPath should remain empty when fetch failed; got %q", stored.ThumbPath)
+	}
+}
+
 func TestThumb_CacheControlHeaderAlwaysSet(t *testing.T) {
 	jpegBytes := tinyJPEG(t)
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -563,6 +619,47 @@ func TestThumb_CacheControlHeaderAlwaysSet(t *testing.T) {
 
 	if got := resp.Header.Get("Cache-Control"); got != "public, max-age=86400" {
 		t.Errorf("cache-control: got %q", got)
+	}
+}
+
+func TestAudio_XBridgeVersionUsesStructFieldNotConstant(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'hello world'`))
+	env.handlers.Bridge = "9.9.9"
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get /audio: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if got := resp.Header.Get("X-Bridge-Version"); got != "9.9.9" {
+		t.Errorf("x-bridge-version: got %q, want %q (must come from h.Bridge, not ytdlp.BridgeVersion)", got, "9.9.9")
+	}
+}
+
+func TestAudio_YtdlpFailsAfterFirstByteClosesWithoutJSONError(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'partial-audio-bytes'; exit 1`))
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get /audio: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status: got %d, want 200 (already committed when bytes flowed)", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "partial-audio-bytes" {
+		t.Errorf("body: got %q, want %q (no JSON error suffix may be appended; would corrupt stream)", string(body), "partial-audio-bytes")
+	}
+
+	entry := env.lastActivity()
+	if entry.Status != activity.StatusError {
+		t.Errorf("activity status: got %q, want error", entry.Status)
+	}
+	if !strings.Contains(entry.Message, "RgKAFK5djSk") {
+		t.Errorf("activity message: got %q, want contains videoID", entry.Message)
 	}
 }
 

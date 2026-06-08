@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -67,7 +68,7 @@ CREATE INDEX IF NOT EXISTS idx_activity_started_at ON activity(started_at DESC);
 
 const entryColumns = `id, kind, video_id, started_at, ended_at, status, message`
 
-// Open opens (and creates if missing) the SQLite-backed activity log at path. Schema application is idempotent.
+// Open opens (and creates if missing) the SQLite-backed activity log at path. Schema application is idempotent. After schema is applied, any rows still marked running are recovered (flipped to error) because the bridge owns the only writer and a running row at boot necessarily came from a prior crashed or hard-killed process.
 func Open(path string) (*Log, error) {
 	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
 	if err != nil {
@@ -77,7 +78,24 @@ func Open(path string) (*Log, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
-	return &Log{db: db}, nil
+	l := &Log{db: db}
+	n, err := l.RecoverStranded()
+	if err != nil {
+		slog.Warn("activity recover stranded failed", "err", err, "path", path)
+	} else if n > 0 {
+		slog.Info("activity recovered stranded rows", "count", n, "path", path)
+	}
+	return l, nil
+}
+
+// RecoverStranded flips every row still marked running to error with a "stranded on bridge restart" message and sets ended_at = started_at. The bridge owns the only writer of this table, so any running row observed at Open time was orphaned by a crash or hard kill. Returns the count of recovered rows. Failures from the underlying UPDATE are returned to the caller; Open downgrades them to a warning because a stale row should not block bridge startup.
+func (l *Log) RecoverStranded() (int64, error) {
+	const stmt = `UPDATE activity SET status = ?, message = ?, ended_at = started_at WHERE status = ?`
+	res, err := l.db.Exec(stmt, string(StatusError), "stranded on bridge restart", string(StatusRunning))
+	if err != nil {
+		return 0, fmt.Errorf("recover stranded: %w", err)
+	}
+	return res.RowsAffected()
 }
 
 // Close releases the underlying database handle.
