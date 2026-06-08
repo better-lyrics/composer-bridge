@@ -106,7 +106,6 @@ func (c *Controller) showWindow() {
 	if ctx == nil {
 		return
 	}
-	SetForeground()
 	wailsRuntime.WindowShow(ctx)
 }
 

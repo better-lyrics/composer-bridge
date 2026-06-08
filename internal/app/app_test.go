@@ -340,16 +340,11 @@ func TestShutdown_IsNoOp(t *testing.T) {
 	}
 }
 
-func TestOnBeforeCloseHidesInsteadOfQuitting(t *testing.T) {
+func TestOnBeforeCloseAllowsNormalClose(t *testing.T) {
 	a, _, _, _ := newTestApp(t)
 	a.Startup(context.Background())
-	hidden := false
-	a.hideWindow = func(ctx context.Context) { hidden = true }
-	if got := a.OnBeforeClose(context.Background()); !got {
-		t.Errorf("OnBeforeClose should return true (prevent quit), got false")
-	}
-	if !hidden {
-		t.Errorf("OnBeforeClose should have invoked hideWindow")
+	if got := a.OnBeforeClose(context.Background()); got {
+		t.Errorf("OnBeforeClose should return false so Wails runs its normal close path (HideWindowOnClose for the X button, Quit for everything else), got true")
 	}
 }
 
