@@ -24,10 +24,11 @@ import (
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// activeApp holds the most recently Startup-ed App so package-level callers
+// activeApp holds the most recently constructed App so package-level callers
 // (Wails SingleInstanceLock handler, tray callbacks) can reach it without an
-// explicit handle. Reads happen from arbitrary goroutines so the registry is
-// guarded by activeMu.
+// explicit handle. Populated by New so callbacks that fire before OnStartup
+// can still find the App. Reads happen from arbitrary goroutines so the
+// registry is guarded by activeMu.
 var (
 	activeMu  sync.RWMutex
 	activeApp *App
@@ -54,8 +55,11 @@ type App struct {
 }
 
 // New builds an App. Caller retains ownership of lib and act: App does not close them.
+// The new App is installed into the package-level active registry before returning so
+// callbacks that fire before Wails's OnStartup (e.g. SingleInstanceLock from a separate
+// goroutine on app boot) can still find it.
 func New(lib *library.Library, act *activity.Log, cfg config.Config, cfgPath, dataDir, ytdlpPath, version string) *App {
-	return &App{
+	a := &App{
 		library:     lib,
 		activity:    act,
 		cfg:         cfg,
@@ -68,6 +72,10 @@ func New(lib *library.Library, act *activity.Log, cfg config.Config, cfgPath, da
 		version:     version,
 		hideWindow:  wailsRuntime.WindowHide,
 	}
+	activeMu.Lock()
+	activeApp = a
+	activeMu.Unlock()
+	return a
 }
 
 func resolveDownloadDir(configured string) string {
@@ -82,13 +90,10 @@ func resolveDownloadDir(configured string) string {
 }
 
 // Startup stashes the Wails runtime context so later methods can emit events to JS.
-// It also registers the App as the package-level active instance so callbacks
-// without an explicit handle (SingleInstanceLock, tray menu items) can reach it.
+// The package-level active registry is populated by New so callbacks that fire
+// before OnStartup can still find the App; Startup only needs to bind the ctx.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
-	activeMu.Lock()
-	activeApp = a
-	activeMu.Unlock()
 }
 
 // Shutdown is a no-op: library and activity handles are owned by main.go.
@@ -109,13 +114,22 @@ func (a *App) OnBeforeClose(_ context.Context) bool {
 	return true
 }
 
-// Active returns the most recently Startup-ed App, or nil if none has started.
-// Safe for concurrent use; intended for Wails callbacks (SingleInstanceLock,
-// tray handlers) that have no direct handle to the App instance.
+// Active returns the most recently constructed App, or nil if none has been
+// built yet. Safe for concurrent use; intended for Wails callbacks
+// (SingleInstanceLock, tray handlers) that have no direct handle to the App
+// instance.
 func Active() *App {
 	activeMu.RLock()
 	defer activeMu.RUnlock()
 	return activeApp
+}
+
+// resetActiveForTesting clears the package-level registry. Test code calls
+// this from t.Cleanup so per-test state does not leak.
+func resetActiveForTesting() {
+	activeMu.Lock()
+	activeApp = nil
+	activeMu.Unlock()
 }
 
 // ListTracks returns every track, newest import first.

@@ -138,10 +138,14 @@ func main() {
 			a.Startup(ctx)
 			handlers.EmitterCtx = ctx
 			trayCtrl.BindContext(ctx)
+			trayCtrl.Start()
 		},
 		OnBeforeClose: a.OnBeforeClose,
-		OnShutdown:    a.Shutdown,
-		Bind:          []any{a},
+		OnShutdown: func(ctx context.Context) {
+			trayCtrl.Stop()
+			a.Shutdown(ctx)
+		},
+		Bind: []any{a},
 	})
 	if err != nil {
 		fatal("wails: %v", err)

@@ -32,6 +32,7 @@ func newTestApp(t *testing.T) (*App, *library.Library, *activity.Log, string) {
 	cfgPath := filepath.Join(dir, "config.json")
 	cfg := config.Defaults()
 	a := New(lib, act, cfg, cfgPath, dir, "", "0.1.0")
+	t.Cleanup(resetActiveForTesting)
 	return a, lib, act, cfgPath
 }
 
