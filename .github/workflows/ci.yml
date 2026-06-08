@@ -87,6 +87,10 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
 
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm build
+
       - name: Generate Wails bindings
         run: wails generate module
 
