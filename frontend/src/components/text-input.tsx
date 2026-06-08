@@ -32,7 +32,6 @@ const TextInput: React.FC<TextInputProps> = ({
     "placeholder:text-composer-text-muted focus:outline-none focus:border-composer-accent",
     "disabled:cursor-not-allowed disabled:opacity-50",
     mono && "font-mono text-xs",
-    className,
   );
   if (multiline) {
     return (
@@ -43,7 +42,7 @@ const TextInput: React.FC<TextInputProps> = ({
         placeholder={placeholder}
         disabled={disabled}
         aria-label={ariaLabel}
-        className={cn(base, "px-3 py-2 text-sm resize-none")}
+        className={cn(base, "px-3 py-2 text-sm resize-none", className)}
       />
     );
   }
@@ -55,7 +54,7 @@ const TextInput: React.FC<TextInputProps> = ({
       placeholder={placeholder}
       disabled={disabled}
       aria-label={ariaLabel}
-      className={cn(base, "h-7 px-2 text-sm")}
+      className={cn(base, "h-7 px-2 text-sm", className)}
     />
   );
 };
