@@ -76,11 +76,16 @@ const LibraryView: React.FC = () => {
           <EmptyState />
         ) : (
           <div
-            className="grid gap-4"
-            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
+            className="grid gap-2"
+            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}
           >
             {tracks.map((track) => (
-              <TrackCard key={track.video_id} track={track} onSelect={setSelected} />
+              <TrackCard
+                key={track.video_id}
+                track={track}
+                onSelect={setSelected}
+                onDownloaded={reload}
+              />
             ))}
           </div>
         )}

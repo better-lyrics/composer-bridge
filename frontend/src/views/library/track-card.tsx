@@ -1,5 +1,8 @@
 import { useState } from "react";
+import { IconCheck, IconDownload, IconExternalLink, IconLoader2 } from "@tabler/icons-react";
+import { DownloadAudio, OpenInComposer } from "../../../wailsjs/go/app/App";
 import type { library } from "../../../wailsjs/go/models";
+import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
 import { cn } from "@/utils/cn";
 import { formatDuration } from "@/utils/format-time";
 
@@ -8,18 +11,70 @@ import { formatDuration } from "@/utils/format-time";
 interface TrackCardProps {
   track: library.Track;
   onSelect: (videoID: string) => void;
+  onDownloaded: (track: library.Track) => void;
 }
 
 // -- Constants ----------------------------------------------------------------
 
 const BRIDGE_THUMB_BASE = "http://localhost:7777/thumb";
 
+// -- Sub-components -----------------------------------------------------------
+
+const ActionButton: React.FC<{
+  label: string;
+  onClick: (e: React.MouseEvent) => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}> = ({ label, onClick, disabled, children }) => (
+  <button
+    type="button"
+    onClick={(e) => {
+      e.stopPropagation();
+      onClick(e);
+    }}
+    disabled={disabled}
+    aria-label={label}
+    title={label}
+    className={cn(
+      "inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-composer-border bg-composer-button text-composer-text-secondary",
+      "transition-colors hover:bg-composer-button-hover hover:text-composer-text",
+      "disabled:opacity-50 disabled:hover:bg-composer-button disabled:hover:text-composer-text-secondary",
+    )}
+  >
+    {children}
+  </button>
+);
+
 // -- Component ----------------------------------------------------------------
 
-const TrackCard: React.FC<TrackCardProps> = ({ track, onSelect }) => {
+const TrackCard: React.FC<TrackCardProps> = ({ track, onSelect, onDownloaded }) => {
   const [thumbLoaded, setThumbLoaded] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const isDownloaded = track.audio_path !== "";
-  const aspectClass = track.is_music ? "aspect-square" : "aspect-video";
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isDownloaded || downloading) return;
+    setDownloading(true);
+    try {
+      const refreshed = await DownloadAudio(track.video_id);
+      onDownloaded(refreshed);
+    } catch (err: unknown) {
+      console.error("DownloadAudio failed", err);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleOpenComposer = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const url = await OpenInComposer(track.video_id);
+      BrowserOpenURL(url);
+    } catch (err: unknown) {
+      console.error("OpenInComposer failed", err);
+    }
+  };
 
   return (
     <button
@@ -28,44 +83,50 @@ const TrackCard: React.FC<TrackCardProps> = ({ track, onSelect }) => {
       data-testid="track-card"
       data-video-id={track.video_id}
       className={cn(
-        "group flex flex-col gap-2 rounded-lg border border-composer-border bg-composer-bg-dark p-2 text-left",
-        "transition-colors hover:border-composer-border-hover",
+        "group flex items-center gap-3 rounded-lg border border-composer-border bg-composer-bg-dark p-2 text-left",
+        "transition-colors hover:border-composer-border-hover hover:bg-composer-button/30",
       )}
     >
-      <div className={cn("relative w-full overflow-hidden rounded-md bg-composer-bg-elevated", aspectClass)}>
+      <div className="relative size-14 shrink-0 overflow-hidden rounded-md bg-composer-bg-elevated">
         <img
           src={`${BRIDGE_THUMB_BASE}/${track.video_id}`}
           alt=""
           loading="lazy"
           onLoad={() => setThumbLoaded(true)}
           className={cn(
-            "h-full w-full object-cover transition-opacity",
+            "size-full object-cover transition-opacity",
             thumbLoaded ? "opacity-100" : "opacity-0",
           )}
         />
       </div>
-      <div className="flex flex-col gap-0.5 px-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-sm font-medium text-composer-text" title={track.title}>
           {track.title}
         </span>
         <span className="truncate text-xs text-composer-text-muted" title={track.artist}>
           {track.artist || "Unknown artist"}
         </span>
-        <div className="mt-1 flex items-center justify-between">
-          <span className="font-mono text-[11px] text-composer-text-muted">
-            {formatDuration(track.duration_sec)}
-          </span>
-          <span
-            className={cn(
-              "rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider",
-              isDownloaded
-                ? "bg-composer-accent/15 text-composer-accent-text"
-                : "text-composer-text-faint",
-            )}
-          >
-            {isDownloaded ? "Downloaded" : "Metadata"}
-          </span>
-        </div>
+        <span className="font-mono text-[11px] text-composer-text-faint">
+          {formatDuration(track.duration_sec)}
+        </span>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <ActionButton
+          label={isDownloaded ? "Already downloaded" : downloading ? "Downloading…" : "Download audio"}
+          onClick={handleDownload}
+          disabled={isDownloaded || downloading}
+        >
+          {downloading ? (
+            <IconLoader2 size={14} className="animate-spin" />
+          ) : isDownloaded ? (
+            <IconCheck size={14} />
+          ) : (
+            <IconDownload size={14} />
+          )}
+        </ActionButton>
+        <ActionButton label="Open in Composer" onClick={handleOpenComposer}>
+          <IconExternalLink size={14} />
+        </ActionButton>
       </div>
     </button>
   );

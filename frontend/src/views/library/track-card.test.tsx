@@ -1,8 +1,10 @@
-import { render, screen } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { library } from "../../../wailsjs/go/models";
+import { setupWailsMock, resetWailsMock, type AppBindings } from "@/test/wails-mock";
 import { TrackCard } from "@/views/library/track-card";
 
-function makeTrack(overrides: Record<string, unknown> = {}) {
+function makeTrack(overrides: Partial<library.Track> = {}): library.Track {
   return {
     id: 1,
     video_id: "RgKAFK5djSk",
@@ -20,42 +22,70 @@ function makeTrack(overrides: Record<string, unknown> = {}) {
     audio_path: "",
     audio_size: 0,
     ...overrides,
-  } as unknown as Parameters<typeof TrackCard>[0]["track"];
+  } as library.Track;
 }
 
+let bindings: AppBindings;
+
+beforeEach(() => {
+  bindings = setupWailsMock();
+});
+
+afterEach(() => {
+  cleanup();
+  resetWailsMock();
+});
+
 describe("TrackCard", () => {
-  it("music track renders with square aspect", () => {
-    render(<TrackCard track={makeTrack({ is_music: true })} onSelect={vi.fn()} />);
-    const wrapper = screen
-      .getByRole("button")
-      .querySelector(".aspect-square");
-    expect(wrapper).not.toBeNull();
+  it("renders title, artist, and duration", () => {
+    render(
+      <TrackCard
+        track={makeTrack({ title: "Hello", artist: "World", duration_sec: 65 })}
+        onSelect={vi.fn()}
+        onDownloaded={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Hello")).toBeInTheDocument();
+    expect(screen.getByText("World")).toBeInTheDocument();
+    expect(screen.getByText("1:05")).toBeInTheDocument();
   });
 
-  it("video track renders with 16:9 aspect", () => {
-    render(<TrackCard track={makeTrack({ is_music: false })} onSelect={vi.fn()} />);
-    const wrapper = screen
-      .getByRole("button")
-      .querySelector(".aspect-video");
-    expect(wrapper).not.toBeNull();
+  it("clicking the card fires onSelect with the videoID", () => {
+    const onSelect = vi.fn();
+    render(<TrackCard track={makeTrack()} onSelect={onSelect} onDownloaded={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("track-card"));
+    expect(onSelect).toHaveBeenCalledWith("RgKAFK5djSk");
   });
 
-  it("metadata-only track shows the muted Metadata badge", () => {
-    render(<TrackCard track={makeTrack({ audio_path: "" })} onSelect={vi.fn()} />);
-    const badge = screen.getByText(/^Metadata$/i);
-    expect(badge).toBeInTheDocument();
-    expect(badge.className).toMatch(/text-composer-text-faint/);
+  it("download button calls DownloadAudio and does not bubble to onSelect", async () => {
+    const onSelect = vi.fn();
+    const onDownloaded = vi.fn();
+    bindings.DownloadAudio.mockResolvedValueOnce(makeTrack({ audio_path: "/tmp/audio.opus" }));
+    render(<TrackCard track={makeTrack()} onSelect={onSelect} onDownloaded={onDownloaded} />);
+    fireEvent.click(screen.getByLabelText(/Download audio/i));
+    await vi.waitFor(() => expect(bindings.DownloadAudio).toHaveBeenCalledWith("RgKAFK5djSk"));
+    await vi.waitFor(() => expect(onDownloaded).toHaveBeenCalled());
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("downloaded track shows Downloaded badge tinted with the composer accent", () => {
+  it("downloaded track disables the download button and shows a check", () => {
     render(
       <TrackCard
         track={makeTrack({ audio_path: "/tmp/audio.opus" })}
         onSelect={vi.fn()}
+        onDownloaded={vi.fn()}
       />,
     );
-    const badge = screen.getByText(/^Downloaded$/i);
-    expect(badge.className).toMatch(/bg-composer-accent/);
-    expect(badge.className).toMatch(/text-composer-accent-text/);
+    const btn = screen.getByLabelText(/Already downloaded/i);
+    expect(btn).toBeDisabled();
+  });
+
+  it("open in composer button calls OpenInComposer and opens the URL", async () => {
+    const onSelect = vi.fn();
+    bindings.OpenInComposer.mockResolvedValueOnce("https://composer.boidu.dev/?yt=RgKAFK5djSk");
+    render(<TrackCard track={makeTrack()} onSelect={onSelect} onDownloaded={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText(/Open in Composer/i));
+    await vi.waitFor(() => expect(bindings.OpenInComposer).toHaveBeenCalledWith("RgKAFK5djSk"));
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });
