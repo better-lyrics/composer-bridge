@@ -222,14 +222,21 @@ func applyTo(ctx context.Context, asset Asset, targetPath string) error {
 
 // PollDaily runs an immediate check on call, then polls every 24h until ctx
 // is cancelled. When an update is available, onAvailable is invoked with the
-// populated UpdateInfo. Failures are logged at warn level and never fatal.
+// populated UpdateInfo. Repeated failures of the same shape are only logged
+// once until the next success.
 func PollDaily(ctx context.Context, manifestURL, currentVersion string, onAvailable func(UpdateInfo)) {
+	var lastErrMsg string
 	check := func() {
 		info, err := Check(ctx, manifestURL, currentVersion, runtime.GOOS, runtime.GOARCH)
 		if err != nil {
-			slog.Warn("updater: daily check failed", "err", err)
+			msg := err.Error()
+			if msg != lastErrMsg {
+				slog.Warn("updater: daily check failed", "err", err)
+				lastErrMsg = msg
+			}
 			return
 		}
+		lastErrMsg = ""
 		if info != nil && info.Available && onAvailable != nil {
 			onAvailable(*info)
 		}
