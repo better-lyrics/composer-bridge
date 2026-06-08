@@ -62,9 +62,11 @@ func (c *Controller) Register() {
 
 // Start fires the tray's deferred ApplicationDidFinishLaunching now that
 // Wails has installed its own delegate. Must be called from OnStartup.
+// dispatchStart hops onto the macOS main thread before invoking c.start
+// because nativeStart touches AppKit, which is main-thread-only.
 func (c *Controller) Start() {
 	if c.start != nil {
-		c.start()
+		dispatchStart(c.start)
 	}
 }
 
