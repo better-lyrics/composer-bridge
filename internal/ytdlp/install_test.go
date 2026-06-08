@@ -144,7 +144,7 @@ func TestFetchLatestRelease_RetriesOn500ThenSucceeds(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	rel, err := fetchLatestRelease(srv.URL)
+	rel, err := fetchLatestRelease(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatalf("fetchLatestRelease: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestFetchLatestRelease_GivesUpAfter3xRetries(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := fetchLatestRelease(srv.URL)
+	_, err := fetchLatestRelease(context.Background(), srv.URL)
 	if err == nil {
 		t.Fatal("fetchLatestRelease: got nil error after persistent 5xx")
 	}
@@ -183,7 +183,7 @@ func TestFetchLatestRelease_DoesNotRetryOn404(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := fetchLatestRelease(srv.URL)
+	_, err := fetchLatestRelease(context.Background(), srv.URL)
 	if err == nil {
 		t.Fatal("fetchLatestRelease: got nil error on 404")
 	}
@@ -246,7 +246,7 @@ func TestRefreshIfNewer_RedownloadsWhenVersionUnknown(t *testing.T) {
 		t.Logf("Version(fake): %q", got)
 	}
 
-	refreshIfNewer(dataDir)
+	refreshIfNewer(context.Background(), dataDir)
 
 	if got := assetCalls.Load(); got < 1 {
 		t.Errorf("asset endpoint: got %d hits, want >=1", got)

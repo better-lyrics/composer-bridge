@@ -19,7 +19,7 @@ import (
 )
 
 // DefaultManifestURL is the publish location for the bridge's release manifest.
-const DefaultManifestURL = "https://github.com/boidushya/composer-bridge/releases/latest/download/manifest.json"
+const DefaultManifestURL = "https://github.com/better-lyrics/composer-bridge/releases/latest/download/manifest.json"
 
 const (
 	manifestFetchTimeout = 15 * time.Second
@@ -81,7 +81,9 @@ func isRetryable(err error) bool {
 
 // withRetry runs op up to retryMaxAttempts times with exponential backoff plus
 // jitter on each retryable failure. Non-retryable errors return immediately.
-func withRetry(op func() error) error {
+// Cancellation of ctx aborts the backoff sleep so shutdown isn't blocked by a
+// pending retry.
+func withRetry(ctx context.Context, op func() error) error {
 	var err error
 	for attempt := 0; attempt < retryMaxAttempts; attempt++ {
 		err = op()
@@ -98,7 +100,11 @@ func withRetry(op func() error) error {
 		if attempt > 0 {
 			delay += time.Duration(rand.Int63n(int64(delay / 2)))
 		}
-		time.Sleep(delay)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
 	}
 	return err
 }
@@ -107,7 +113,7 @@ func withRetry(op func() error) error {
 // The Version field is required; an empty value is rejected.
 func FetchManifest(ctx context.Context, manifestURL string) (*Manifest, error) {
 	var m Manifest
-	err := withRetry(func() error {
+	err := withRetry(ctx, func() error {
 		reqCtx, cancel := context.WithTimeout(ctx, manifestFetchTimeout)
 		defer cancel()
 		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, manifestURL, nil)
@@ -196,7 +202,7 @@ func applyTo(ctx context.Context, asset Asset, targetPath string) error {
 	if err != nil {
 		return fmt.Errorf("decode sha256: %w", err)
 	}
-	return withRetry(func() error {
+	return withRetry(ctx, func() error {
 		reqCtx, cancel := context.WithTimeout(ctx, assetFetchTimeout)
 		defer cancel()
 		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, asset.URL, nil)
