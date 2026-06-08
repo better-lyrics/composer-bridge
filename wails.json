@@ -11,7 +11,7 @@
   },
   "info": {
     "productName": "Composer Bridge",
-    "productVersion": "1.0.1",
+    "productVersion": "1.0.2",
     "copyright": "Boidushya Bhattacharya",
     "comments": "Local YouTube audio bridge for the Composer lyrics composer."
   }

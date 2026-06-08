@@ -91,16 +91,31 @@ func (c *Controller) onReady() {
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit", "Stop the bridge and quit")
 
-	mShow.Click(func() {
-		if ctx := c.Context(); ctx != nil {
-			wailsRuntime.WindowShow(ctx)
-		}
-	})
-	mQuit.Click(func() {
-		if ctx := c.Context(); ctx != nil {
-			wailsRuntime.Quit(ctx)
-		}
-	})
+	mShow.Click(c.showWindow)
+	mQuit.Click(c.quitApp)
+
+	// energye/systray does not auto-attach the NSMenu to the status item.
+	// Wire left-click to restore the window and right-click to open the menu
+	// (the library's ShowMenu only works inside the OnRClick callback on macOS).
+	systray.SetOnClick(func(_ systray.IMenu) { c.showWindow() })
+	systray.SetOnRClick(func(m systray.IMenu) { _ = m.ShowMenu() })
+}
+
+func (c *Controller) showWindow() {
+	ctx := c.Context()
+	if ctx == nil {
+		return
+	}
+	SetForeground()
+	wailsRuntime.WindowShow(ctx)
+}
+
+func (c *Controller) quitApp() {
+	ctx := c.Context()
+	if ctx == nil {
+		return
+	}
+	wailsRuntime.Quit(ctx)
 }
 
 // onExit satisfies systray's required callback signature; no cleanup is

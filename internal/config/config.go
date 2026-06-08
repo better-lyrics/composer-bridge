@@ -35,7 +35,6 @@ func Defaults() Config {
 		UseRandomIfBusy: true,
 		AllowedOrigins: []string{
 			"https://composer.boidu.dev",
-			"https://composer-staging.boidu.dev",
 			"http://localhost:5173",
 			"http://localhost:5174",
 			"http://localhost:5175",

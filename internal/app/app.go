@@ -20,6 +20,7 @@ import (
 	"github.com/better-lyrics/composer-bridge/internal/config"
 	"github.com/better-lyrics/composer-bridge/internal/library"
 	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
+	"github.com/better-lyrics/composer-bridge/tray"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -106,9 +107,12 @@ func (a *App) Ctx() context.Context {
 }
 
 // OnBeforeClose is wired into options.App.OnBeforeClose. Returning true tells
-// Wails to NOT quit the app: we hide the window and stay running in the tray.
+// Wails to NOT quit the app: we hide the window, drop the Dock icon on macOS,
+// and keep running as a tray-only background service. The tray icon is the
+// only way back to the window from this state.
 func (a *App) OnBeforeClose(_ context.Context) bool {
 	if a.ctx != nil && a.hideWindow != nil {
+		tray.SetBackground()
 		a.hideWindow(a.ctx)
 	}
 	return true

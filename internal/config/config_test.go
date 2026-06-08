@@ -36,7 +36,6 @@ func TestDefaults_ExposesDocumentedValues(t *testing.T) {
 	}
 	wantOrigins := []string{
 		"https://composer.boidu.dev",
-		"https://composer-staging.boidu.dev",
 		"http://localhost:5173",
 		"http://localhost:5174",
 		"http://localhost:5175",
