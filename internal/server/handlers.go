@@ -75,7 +75,7 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Audio streams the bestaudio m4a track for videoID. Wraps the call in an activity row so the Activity feed shows "downloading X" in real time. Returns 502 JSON if yt-dlp fails before any bytes flow, otherwise the connection is closed mid-stream.
+// Audio streams the bestaudio track for videoID. Wraps the call in an activity row so the Activity feed shows "downloading X" in real time. Returns 502 JSON if yt-dlp fails before any bytes flow, otherwise the connection is closed mid-stream. As a side effect, the videoID is upserted into the library in the background so the bridge UI can display the track even though Composer never explicitly imports it.
 func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	videoID := r.PathValue("id")
 	if !ytdlp.VideoIDRe.MatchString(videoID) {
@@ -86,6 +86,7 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "opus"
 	}
+	go h.ensureLibraryEntry(videoID)
 	actID := h.startActivity(activity.KindAudioDownload, videoID)
 	w.Header().Set("Content-Type", audioContentType(format))
 	w.Header().Set("Cache-Control", "no-store")
@@ -102,6 +103,27 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, http.StatusBadGateway, fmt.Sprintf("yt-dlp failed for %s", videoID))
+}
+
+// ensureLibraryEntry fetches metadata for videoID and inserts/updates the
+// library row in the background. Skipped when a row already exists. Failures
+// are logged and never break the caller's request. Uses a detached context so
+// the request closing doesn't kill the metadata fetch mid-flight.
+func (h *Handlers) ensureLibraryEntry(videoID string) {
+	if _, err := h.Library.GetTrack(videoID); err == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	info, err := ytdlp.FetchInfo(ctx, h.YtdlpPath, videoID)
+	if err != nil {
+		slog.Warn("audio: background info fetch failed", "videoID", videoID, "err", err)
+		return
+	}
+	track := trackFromInfo(info)
+	if err := h.Library.InsertTrack(&track); err != nil {
+		slog.Warn("audio: background library insert failed", "videoID", videoID, "err", err)
+	}
 }
 
 // Import fetches metadata for the body's video_id, inserts a track row, and returns the inserted record. Wrapped in an activity row.
