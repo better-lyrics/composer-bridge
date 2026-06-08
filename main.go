@@ -18,6 +18,7 @@ import (
 	"github.com/better-lyrics/composer-bridge/internal/server"
 	"github.com/better-lyrics/composer-bridge/internal/updater"
 	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
+	"github.com/better-lyrics/composer-bridge/tray"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -105,6 +106,10 @@ func main() {
 	})
 
 	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
+
+	trayCtrl := tray.New()
+	trayCtrl.Register()
+
 	err = wails.Run(&options.App{
 		Title:             "Composer Bridge",
 		Width:             1024,
@@ -132,6 +137,7 @@ func main() {
 		OnStartup: func(ctx context.Context) {
 			a.Startup(ctx)
 			handlers.EmitterCtx = ctx
+			trayCtrl.BindContext(ctx)
 		},
 		OnBeforeClose: a.OnBeforeClose,
 		OnShutdown:    a.Shutdown,
