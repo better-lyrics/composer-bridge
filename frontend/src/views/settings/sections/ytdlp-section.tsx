@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ForceYtdlpUpdate, YtdlpVersion } from "../../../../wailsjs/go/app/App";
 import type { config } from "../../../../wailsjs/go/models";
 import { Button } from "@/components/button";
@@ -26,6 +26,10 @@ const YtdlpSection: React.FC<YtdlpSectionProps> = ({
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [localVersion, setLocalVersion] = useState(ytdlpVersion);
+
+  useEffect(() => {
+    setLocalVersion(ytdlpVersion);
+  }, [ytdlpVersion]);
 
   const handleForceUpdate = async () => {
     setUpdating(true);
