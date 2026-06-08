@@ -1,35 +1,66 @@
 import { useEffect, useState } from "react";
-import { IconBrandYoutube, IconExternalLink, IconTrash, IconDownload, IconX } from "@tabler/icons-react";
-import { GetTrack, OpenInComposer, OpenInYouTube, RemoveTrack } from "../../../wailsjs/go/app/App";
-import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
+import {
+  IconBrandYoutube,
+  IconCheck,
+  IconDownload,
+  IconExternalLink,
+  IconLoader2,
+  IconTrash,
+  IconX,
+} from "@tabler/icons-react";
+import {
+  DownloadAudio,
+  GetTrack,
+  OpenInComposer,
+  OpenInYouTube,
+  RemoveTrack,
+} from "../../../wailsjs/go/app/App";
 import type { library } from "../../../wailsjs/go/models";
-import { useUIStore } from "@/stores/ui-store";
+import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
+import { Button } from "@/components/button";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useUIStore } from "@/stores/ui-store";
 import { cn } from "@/utils/cn";
 import { formatDuration } from "@/utils/format-time";
 
-// -- Constants -----------------------------------------------------------------
+// -- Constants ----------------------------------------------------------------
 
 const BRIDGE_THUMB_BASE = "http://localhost:7777/thumb";
 
-// -- Interfaces ----------------------------------------------------------------
+// -- Interfaces ---------------------------------------------------------------
 
 interface DetailPanelProps {
   onRemoved: () => void;
 }
 
-// -- Components ----------------------------------------------------------------
+// -- Sub-components -----------------------------------------------------------
+
+const MetaRow: React.FC<{ label: string; value: React.ReactNode; mono?: boolean }> = ({
+  label,
+  value,
+  mono,
+}) => (
+  <>
+    <dt className="text-composer-text-muted">{label}</dt>
+    <dd className={cn("text-composer-text select-text", mono && "font-mono text-[11px]")}>{value}</dd>
+  </>
+);
+
+// -- Component ----------------------------------------------------------------
 
 const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   const selectedVideoId = useUIStore((s) => s.selectedVideoId);
   const setSelected = useUIStore((s) => s.setSelectedVideoId);
   const [track, setTrack] = useState<library.Track | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const isOpen = selectedVideoId !== null;
 
   useEffect(() => {
     if (!selectedVideoId) {
       setTrack(null);
+      setDownloadError(null);
       return;
     }
     let cancelled = false;
@@ -37,7 +68,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
       .then((t) => {
         if (!cancelled) setTrack(t ?? null);
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         if (!cancelled) console.error("GetTrack failed", err);
       });
     return () => {
@@ -51,21 +82,27 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
 
   const openComposer = async () => {
     if (!track) return;
-    try {
-      const url = await OpenInComposer(track.video_id);
-      BrowserOpenURL(url);
-    } catch (err) {
-      console.error("OpenInComposer failed", err);
-    }
+    const url = await OpenInComposer(track.video_id);
+    BrowserOpenURL(url);
   };
 
   const openYouTube = async () => {
     if (!track) return;
+    const url = await OpenInYouTube(track.video_id);
+    BrowserOpenURL(url);
+  };
+
+  const downloadAudio = async () => {
+    if (!track) return;
+    setDownloading(true);
+    setDownloadError(null);
     try {
-      const url = await OpenInYouTube(track.video_id);
-      BrowserOpenURL(url);
-    } catch (err) {
-      console.error("OpenInYouTube failed", err);
+      const refreshed = await DownloadAudio(track.video_id);
+      setTrack(refreshed);
+    } catch (err: unknown) {
+      setDownloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -73,7 +110,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
     if (!track) return;
     try {
       await RemoveTrack(track.video_id);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("RemoveTrack failed", err);
     }
     setConfirmOpen(false);
@@ -82,119 +119,91 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   };
 
   const aspectClass = track?.is_music ? "aspect-square" : "aspect-video";
+  const isDownloaded = track?.audio_path && track.audio_path.length > 0;
 
   return (
     <>
       <div
-        className="fixed inset-0 z-30 bg-black/40"
+        className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm"
         onClick={handleClose}
         aria-hidden="true"
       />
       <aside
         role="complementary"
         aria-label="Track details"
-        className={cn(
-          "fixed top-0 right-0 z-40 flex h-full w-96 flex-col border-l border-border bg-surface p-5",
-          "transition-transform translate-x-0",
-        )}
+        className="fixed top-0 right-0 z-40 flex h-full w-[400px] flex-col border-l border-composer-border bg-composer-bg-dark"
       >
-        <div className="mb-4 flex items-center justify-between">
-          <span className="text-sm font-medium text-text-muted">Track details</span>
-          <button
-            type="button"
-            onClick={handleClose}
-            aria-label="Close details"
-            className="rounded-md p-1 text-text-muted cursor-pointer hover:bg-bl-red-soft hover:text-text"
-          >
+        <header className="flex items-center justify-between border-b border-composer-border px-5 py-3">
+          <span className="text-xs uppercase tracking-wider text-composer-text-muted">Track details</span>
+          <Button variant="ghost" size="icon" aria-label="Close details" onClick={handleClose}>
             <IconX size={16} />
-          </button>
-        </div>
-        {!track && <div className="text-sm text-text-muted">Loading...</div>}
+          </Button>
+        </header>
+        {!track && (
+          <div className="flex flex-1 items-center justify-center text-sm text-composer-text-muted">
+            Loading…
+          </div>
+        )}
         {track && (
-          <div className="flex flex-col gap-4 overflow-y-auto">
-            <div className={cn("w-full overflow-hidden rounded-md bg-surface-elevated", aspectClass)}>
+          <div className="flex flex-col gap-5 overflow-y-auto px-5 py-5">
+            <div className={cn("w-full overflow-hidden rounded-lg bg-composer-bg-elevated", aspectClass)}>
               <img
                 src={`${BRIDGE_THUMB_BASE}/${track.video_id}`}
                 alt=""
                 className="h-full w-full object-cover"
               />
             </div>
-            <div className="flex flex-col gap-1">
-              <h2 className="text-base font-semibold text-text select-text">{track.title}</h2>
-              <p className="text-sm text-text-muted select-text">{track.artist || "Unknown artist"}</p>
+            <div className="flex flex-col gap-0.5">
+              <h2 className="text-base font-semibold text-composer-text select-text">{track.title}</h2>
+              <p className="text-sm text-composer-text-secondary select-text">
+                {track.artist || "Unknown artist"}
+              </p>
             </div>
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
-              {track.album && (
-                <>
-                  <dt className="text-text-muted">Album</dt>
-                  <dd className="text-text select-text">{track.album}</dd>
-                </>
-              )}
-              <dt className="text-text-muted">Duration</dt>
-              <dd className="text-text select-text">{formatDuration(track.duration_sec)}</dd>
-              {track.release_year > 0 && (
-                <>
-                  <dt className="text-text-muted">Released</dt>
-                  <dd className="text-text select-text">{track.release_year}</dd>
-                </>
-              )}
-              {track.music_type && (
-                <>
-                  <dt className="text-text-muted">Type</dt>
-                  <dd className="text-text select-text">{track.music_type}</dd>
-                </>
-              )}
-              <dt className="text-text-muted">Source</dt>
-              <dd className="truncate text-text select-text" title={track.source_url}>
-                {track.source_url}
-              </dd>
+              {track.album && <MetaRow label="Album" value={track.album} />}
+              <MetaRow label="Duration" value={formatDuration(track.duration_sec)} mono />
+              {track.release_year > 0 && <MetaRow label="Released" value={track.release_year} />}
+              {track.music_type && <MetaRow label="Type" value={track.music_type} />}
+              <MetaRow label="Video ID" value={track.video_id} mono />
             </dl>
-            <div className="mt-2 flex flex-col gap-2">
-              <button
-                type="button"
-                disabled
-                title="Audio download wiring lands in a follow-up."
-                className={cn(
-                  "flex items-center gap-2 rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm",
-                  "text-text-muted cursor-not-allowed opacity-60",
-                )}
-              >
-                <IconDownload size={14} />
-                {track.audio_path === "" ? "Download audio" : "Audio downloaded"}
-              </button>
-              <button
-                type="button"
-                onClick={openComposer}
-                className={cn(
-                  "flex items-center gap-2 rounded-md bg-bl-red px-3 py-2 text-sm font-medium text-white cursor-pointer",
-                  "hover:bg-bl-red-hover",
-                )}
-              >
+            <div className="flex flex-col gap-2">
+              <Button variant="primary" size="md" hasIcon onClick={openComposer}>
                 <IconExternalLink size={14} />
                 Open in Composer
-              </button>
-              <button
-                type="button"
-                onClick={openYouTube}
-                className={cn(
-                  "flex items-center gap-2 rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm text-text cursor-pointer",
-                  "hover:border-bl-red-soft",
-                )}
+              </Button>
+              <Button
+                variant="secondary"
+                size="md"
+                hasIcon
+                onClick={downloadAudio}
+                disabled={downloading || Boolean(isDownloaded)}
               >
+                {downloading ? (
+                  <IconLoader2 size={14} className="animate-spin" />
+                ) : isDownloaded ? (
+                  <IconCheck size={14} />
+                ) : (
+                  <IconDownload size={14} />
+                )}
+                {downloading ? "Downloading…" : isDownloaded ? "Audio downloaded" : "Download audio"}
+              </Button>
+              {downloadError && (
+                <span className="text-xs text-composer-error-text">{downloadError}</span>
+              )}
+              <Button variant="secondary" size="md" hasIcon onClick={openYouTube}>
                 <IconBrandYoutube size={14} />
                 Open in YouTube
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="ghost"
+                size="md"
+                hasIcon
                 onClick={() => setConfirmOpen(true)}
-                className={cn(
-                  "flex items-center gap-2 rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm text-text-muted cursor-pointer",
-                  "hover:border-bl-red hover:text-bl-red",
-                )}
+                className="text-composer-text-muted hover:text-composer-error-text"
               >
                 <IconTrash size={14} />
                 Remove from library
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -212,5 +221,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
     </>
   );
 };
+
+// -- Exports ------------------------------------------------------------------
 
 export { DetailPanel };

@@ -20,10 +20,21 @@ import (
 
 const (
 	thumbnailArtSize  = 1024
-	audioContentType  = "audio/mp4"
 	thumbnailMaxAge   = "public, max-age=86400"
 	thumbnailFetchTTL = 30 * time.Second
 )
+
+func audioContentType(format string) string {
+	switch format {
+	case "m4a":
+		return "audio/mp4"
+	case "mp3":
+		return "audio/mpeg"
+	default:
+		// opus, webm, anything unknown.
+		return "audio/webm"
+	}
+}
 
 // Handlers wires the bridge HTTP API to the library, activity log, and yt-dlp.
 // Library, Activity, YtdlpPath, ThumbDir, and Bridge are required. Emitter and
@@ -32,13 +43,14 @@ const (
 // keep its live feed in sync without polling. A nil Emitter leaves handlers
 // emitting nothing, which is what tests want by default.
 type Handlers struct {
-	Library    *library.Library
-	Activity   *activity.Log
-	YtdlpPath  string
-	ThumbDir   string
-	Bridge     string
-	Emitter    events.Emitter
-	EmitterCtx context.Context
+	Library     *library.Library
+	Activity    *activity.Log
+	YtdlpPath   string
+	ThumbDir    string
+	Bridge      string
+	AudioFormat string
+	Emitter     events.Emitter
+	EmitterCtx  context.Context
 }
 
 // Router returns the bridge's HTTP mux. Wrap with WithCORS at the call site for browser access.
@@ -70,12 +82,16 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid video id")
 		return
 	}
+	format := h.AudioFormat
+	if format == "" {
+		format = "opus"
+	}
 	actID := h.startActivity(activity.KindAudioDownload, videoID)
-	w.Header().Set("Content-Type", audioContentType)
+	w.Header().Set("Content-Type", audioContentType(format))
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Bridge-Version", h.Bridge)
 	tw := &trackingWriter{rw: w}
-	err := ytdlp.StreamAudio(r.Context(), h.YtdlpPath, videoID, tw)
+	err := ytdlp.StreamAudio(r.Context(), h.YtdlpPath, videoID, format, tw)
 	if err == nil {
 		h.endActivity(actID, activity.StatusOK, "")
 		return

@@ -29,7 +29,7 @@ func newTestApp(t *testing.T) (*App, *library.Library, *activity.Log, string) {
 
 	cfgPath := filepath.Join(dir, "config.json")
 	cfg := config.Defaults()
-	a := New(lib, act, cfg, cfgPath, "0.1.0")
+	a := New(lib, act, cfg, cfgPath, dir, "", "0.1.0")
 	return a, lib, act, cfgPath
 }
 
@@ -252,7 +252,7 @@ func TestBridgeVersion_ReflectsConstructorArg(t *testing.T) {
 	}
 	defer act.Close()
 
-	a := New(lib, act, config.Defaults(), filepath.Join(dir, "config.json"), "9.9.9")
+	a := New(lib, act, config.Defaults(), filepath.Join(dir, "config.json"), dir, "", "9.9.9")
 	if got := a.BridgeVersion(); got != "9.9.9" {
 		t.Errorf("BridgeVersion: got %q, want %q", got, "9.9.9")
 	}

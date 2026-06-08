@@ -1,5 +1,5 @@
 import { vi, type Mock } from "vitest";
-import type { library, activity, config } from "../../wailsjs/go/models";
+import type { activity, config, library } from "../../wailsjs/go/models";
 
 // AppBindings mirrors the auto-generated wailsjs/go/app/App.d.ts surface.
 // All fields are vi.fn() so tests can assert call shape and override returns.
@@ -13,6 +13,13 @@ export interface AppBindings {
   OpenInComposer: Mock<(videoID: string) => Promise<string>>;
   OpenInYouTube: Mock<(videoID: string) => Promise<string>>;
   BridgeVersion: Mock<() => Promise<string>>;
+  YtdlpVersion: Mock<() => Promise<string>>;
+  LibrarySize: Mock<() => Promise<number>>;
+  ThumbCacheSize: Mock<() => Promise<number>>;
+  ForceYtdlpUpdate: Mock<() => Promise<string>>;
+  DownloadAudio: Mock<(videoID: string) => Promise<library.Track>>;
+  OpenLogFile: Mock<() => Promise<string>>;
+  BuildDiagnosticReport: Mock<() => Promise<string>>;
 }
 
 const DEFAULT_CONFIG = {
@@ -24,31 +31,57 @@ const DEFAULT_CONFIG = {
   open_at_login: false,
   show_menu_bar_icon: true,
   max_concurrent: 3,
-  audio_format: "m4a",
+  audio_format: "opus",
   audio_quality: "best",
   log_level: "info",
   data_dir: "",
   download_dir: "",
 } as unknown as config.Config;
 
-// setupWailsMock installs a vi-mocked window.go.main.App surface and a window.runtime
+// setupWailsMock installs a vi-mocked window.go.app.App surface and a window.runtime
 // shim. Anything not in `overrides` resolves to a sensible empty default so tests
 // don't accidentally read undefined.
 export function setupWailsMock(overrides: Partial<AppBindings> = {}): AppBindings {
+  const emptyTrack: library.Track = {
+    id: 0,
+    video_id: "",
+    title: "",
+    artist: "",
+    album: "",
+    release_year: 0,
+    duration_sec: 0,
+    thumbnail_url: "",
+    thumb_path: "",
+    is_music: false,
+    music_type: "",
+    source_url: "",
+    imported_at: 0,
+    audio_path: "",
+    audio_size: 0,
+  };
   const bindings: AppBindings = {
-    ListTracks: vi.fn().mockResolvedValue([]),
-    GetTrack: vi.fn().mockResolvedValue(null),
-    RemoveTrack: vi.fn().mockResolvedValue(undefined),
-    RecentActivity: vi.fn().mockResolvedValue([]),
-    GetConfig: vi.fn().mockResolvedValue({ ...DEFAULT_CONFIG }),
-    SaveConfig: vi.fn().mockResolvedValue(undefined),
-    OpenInComposer: vi.fn().mockImplementation((id: string) =>
-      Promise.resolve(`https://composer.boidu.dev/?yt=${id}`),
-    ),
-    OpenInYouTube: vi.fn().mockImplementation((id: string) =>
-      Promise.resolve(`https://www.youtube.com/watch?v=${id}`),
-    ),
-    BridgeVersion: vi.fn().mockResolvedValue("0.1.0-test"),
+    ListTracks: vi.fn<() => Promise<library.Track[]>>().mockResolvedValue([]),
+    GetTrack: vi.fn<(videoID: string) => Promise<library.Track | null>>().mockResolvedValue(null),
+    RemoveTrack: vi.fn<(videoID: string) => Promise<void>>().mockResolvedValue(undefined),
+    RecentActivity: vi.fn<(limit: number) => Promise<activity.Entry[]>>().mockResolvedValue([]),
+    GetConfig: vi.fn<() => Promise<config.Config>>().mockResolvedValue({ ...DEFAULT_CONFIG }),
+    SaveConfig: vi.fn<(cfg: config.Config) => Promise<void>>().mockResolvedValue(undefined),
+    OpenInComposer: vi
+      .fn<(videoID: string) => Promise<string>>()
+      .mockImplementation((id: string) => Promise.resolve(`https://composer.boidu.dev/?yt=${id}`)),
+    OpenInYouTube: vi
+      .fn<(videoID: string) => Promise<string>>()
+      .mockImplementation((id: string) => Promise.resolve(`https://www.youtube.com/watch?v=${id}`)),
+    BridgeVersion: vi.fn<() => Promise<string>>().mockResolvedValue("0.1.0-test"),
+    YtdlpVersion: vi.fn<() => Promise<string>>().mockResolvedValue("2026.01.01"),
+    LibrarySize: vi.fn<() => Promise<number>>().mockResolvedValue(0),
+    ThumbCacheSize: vi.fn<() => Promise<number>>().mockResolvedValue(0),
+    ForceYtdlpUpdate: vi.fn<() => Promise<string>>().mockResolvedValue("2026.01.02"),
+    DownloadAudio: vi
+      .fn<(videoID: string) => Promise<library.Track>>()
+      .mockResolvedValue(emptyTrack),
+    OpenLogFile: vi.fn<() => Promise<string>>().mockResolvedValue("file:///tmp/bridge.log"),
+    BuildDiagnosticReport: vi.fn<() => Promise<string>>().mockResolvedValue("diagnostics"),
     ...overrides,
   };
   (window as unknown as { go: { app: { App: AppBindings } } }).go = {

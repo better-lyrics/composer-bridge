@@ -206,8 +206,8 @@ func TestAudio_StreamsBytesWithLockedHeaders(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status: got %d, want 200", resp.StatusCode)
 	}
-	if got := resp.Header.Get("Content-Type"); got != "audio/mp4" {
-		t.Errorf("content-type: got %q, want audio/mp4", got)
+	if got := resp.Header.Get("Content-Type"); got != "audio/webm" {
+		t.Errorf("content-type: got %q, want audio/webm", got)
 	}
 	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
 		t.Errorf("cache-control: got %q, want no-store", got)
@@ -293,7 +293,7 @@ func TestAudio_ArgvRegressionFlags(t *testing.T) {
 
 	entry := env.lastActivity()
 	wantSubstrs := []string{
-		"-f", "bestaudio[ext=m4a]/bestaudio",
+		"-f", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio",
 		"-o", "--quiet", "--no-warnings", "--no-playlist",
 		"https://www.youtube.com/watch?v=RgKAFK5djSk",
 	}

@@ -1,6 +1,6 @@
 import { cn } from "@/utils/cn";
 
-// -- Interfaces ----------------------------------------------------------------
+// -- Interfaces ---------------------------------------------------------------
 
 interface TextInputProps {
   value: string;
@@ -10,10 +10,11 @@ interface TextInputProps {
   ariaLabel?: string;
   multiline?: boolean;
   rows?: number;
+  mono?: boolean;
   className?: string;
 }
 
-// -- Components ----------------------------------------------------------------
+// -- Component ----------------------------------------------------------------
 
 const TextInput: React.FC<TextInputProps> = ({
   value,
@@ -23,12 +24,14 @@ const TextInput: React.FC<TextInputProps> = ({
   ariaLabel,
   multiline,
   rows = 3,
+  mono,
   className,
 }) => {
-  const baseClass = cn(
-    "w-full rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm text-text",
-    "placeholder:text-text-muted focus:border-bl-red focus:outline-none focus:ring-1 focus:ring-bl-red",
+  const base = cn(
+    "w-full rounded-md bg-composer-input border border-composer-border text-composer-text",
+    "placeholder:text-composer-text-muted focus:outline-none focus:border-composer-accent",
     "disabled:cursor-not-allowed disabled:opacity-50",
+    mono && "font-mono text-xs",
     className,
   );
   if (multiline) {
@@ -40,7 +43,7 @@ const TextInput: React.FC<TextInputProps> = ({
         placeholder={placeholder}
         disabled={disabled}
         aria-label={ariaLabel}
-        className={cn(baseClass, "font-mono")}
+        className={cn(base, "px-3 py-2 text-sm resize-none")}
       />
     );
   }
@@ -52,9 +55,11 @@ const TextInput: React.FC<TextInputProps> = ({
       placeholder={placeholder}
       disabled={disabled}
       aria-label={ariaLabel}
-      className={baseClass}
+      className={cn(base, "h-7 px-2 text-sm")}
     />
   );
 };
+
+// -- Exports ------------------------------------------------------------------
 
 export { TextInput };

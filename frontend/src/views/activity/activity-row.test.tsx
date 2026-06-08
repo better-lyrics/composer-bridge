@@ -23,15 +23,15 @@ describe("ActivityRow", () => {
     expect(screen.getByText(/^\d+s ago$/)).toBeInTheDocument();
   });
 
-  it("running audio_download row gets a bl-red left border", () => {
+  it("running audio_download row carries the composer-accent tint", () => {
     render(<ActivityRow entry={entry({ status: "running", kind: "audio_download" })} />);
     const row = screen.getByTestId("activity-row");
-    expect(row.className).toMatch(/border-l-bl-red/);
+    expect(row.className).toMatch(/bg-composer-accent\/5/);
   });
 
-  it("non-running audio_download row does NOT get the live border", () => {
+  it("non-running audio_download row does NOT carry the live tint", () => {
     render(<ActivityRow entry={entry({ status: "ok", kind: "audio_download" })} />);
     const row = screen.getByTestId("activity-row");
-    expect(row.className).not.toMatch(/border-l-bl-red/);
+    expect(row.className).not.toMatch(/bg-composer-accent\/5/);
   });
 });

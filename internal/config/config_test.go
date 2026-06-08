@@ -58,8 +58,8 @@ func TestDefaults_ExposesDocumentedValues(t *testing.T) {
 	if d.MaxConcurrent != 3 {
 		t.Errorf("MaxConcurrent: got %d, want 3", d.MaxConcurrent)
 	}
-	if d.AudioFormat != "m4a" {
-		t.Errorf("AudioFormat: got %q, want %q", d.AudioFormat, "m4a")
+	if d.AudioFormat != "opus" {
+		t.Errorf("AudioFormat: got %q, want %q", d.AudioFormat, "opus")
 	}
 	if d.AudioQuality != "best" {
 		t.Errorf("AudioQuality: got %q, want %q", d.AudioQuality, "best")

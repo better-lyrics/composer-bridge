@@ -42,6 +42,12 @@ func main() {
 		slog.Warn("config load fell back to defaults", "err", err)
 	}
 
+	logPath := filepath.Join(dataDir, "bridge.log")
+	if logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+		defer logFile.Close()
+		slog.SetDefault(slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{Level: parseLogLevel(cfg.LogLevel)})))
+	}
+
 	ytdlpPath, err := ytdlp.Ensure(dataDir)
 	if err != nil {
 		fatal("ensure yt-dlp: %v", err)
@@ -65,11 +71,12 @@ func main() {
 	}
 
 	handlers := &server.Handlers{
-		Library:   lib,
-		Activity:  act,
-		YtdlpPath: ytdlpPath,
-		ThumbDir:  filepath.Join(dataDir, "thumbs"),
-		Bridge:    Version,
+		Library:     lib,
+		Activity:    act,
+		YtdlpPath:   ytdlpPath,
+		ThumbDir:    filepath.Join(dataDir, "thumbs"),
+		Bridge:      Version,
+		AudioFormat: cfg.AudioFormat,
 		Emitter: events.EmitterFunc(func(ctx context.Context, name string, args ...any) {
 			if ctx == nil {
 				return
@@ -93,7 +100,7 @@ func main() {
 		slog.Info("bridge update available", "version", info.Latest, "current", info.Current)
 	})
 
-	a := app.New(lib, act, cfg, cfgPath, Version)
+	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
 	err = wails.Run(&options.App{
 		Title:       "Composer Bridge",
 		Width:       1024,
@@ -122,4 +129,17 @@ func resolveDataDir() string {
 func fatal(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 	os.Exit(1)
+}
+
+func parseLogLevel(name string) slog.Level {
+	switch name {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }

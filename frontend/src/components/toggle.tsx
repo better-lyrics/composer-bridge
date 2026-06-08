@@ -1,6 +1,6 @@
 import { cn } from "@/utils/cn";
 
-// -- Interfaces ----------------------------------------------------------------
+// -- Interfaces ---------------------------------------------------------------
 
 interface ToggleProps {
   checked: boolean;
@@ -9,31 +9,31 @@ interface ToggleProps {
   ariaLabel?: string;
 }
 
-// -- Components ----------------------------------------------------------------
+// -- Component ----------------------------------------------------------------
 
-const Toggle: React.FC<ToggleProps> = ({ checked, onChange, disabled, ariaLabel }) => {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={ariaLabel}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
+const Toggle: React.FC<ToggleProps> = ({ checked, onChange, disabled, ariaLabel }) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    aria-label={ariaLabel}
+    disabled={disabled}
+    onClick={() => onChange(!checked)}
+    className={cn(
+      "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors",
+      checked ? "bg-composer-accent" : "bg-composer-button",
+      disabled && "cursor-not-allowed opacity-40",
+    )}
+  >
+    <span
       className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors",
-        checked ? "bg-bl-red" : "bg-border",
-        disabled && "cursor-not-allowed opacity-40",
+        "pointer-events-none inline-block size-4 rounded-full bg-white shadow transform transition-transform mt-0.5",
+        checked ? "translate-x-4.5" : "translate-x-0.5",
       )}
-    >
-      <span
-        className={cn(
-          "inline-block h-3.5 w-3.5 transform rounded-full bg-text transition-transform",
-          checked ? "translate-x-5" : "translate-x-1",
-        )}
-      />
-    </button>
-  );
-};
+    />
+  </button>
+);
+
+// -- Exports ------------------------------------------------------------------
 
 export { Toggle };

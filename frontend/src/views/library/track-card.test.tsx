@@ -40,19 +40,22 @@ describe("TrackCard", () => {
     expect(wrapper).not.toBeNull();
   });
 
-  it("metadata-only track shows Metadata only badge", () => {
+  it("metadata-only track shows the muted Metadata badge", () => {
     render(<TrackCard track={makeTrack({ audio_path: "" })} onSelect={vi.fn()} />);
-    expect(screen.getByText(/Metadata only/i)).toBeInTheDocument();
+    const badge = screen.getByText(/^Metadata$/i);
+    expect(badge).toBeInTheDocument();
+    expect(badge.className).toMatch(/text-composer-text-faint/);
   });
 
-  it("downloaded track shows Downloaded badge in bl-red", () => {
+  it("downloaded track shows Downloaded badge tinted with the composer accent", () => {
     render(
       <TrackCard
-        track={makeTrack({ audio_path: "/tmp/audio.m4a" })}
+        track={makeTrack({ audio_path: "/tmp/audio.opus" })}
         onSelect={vi.fn()}
       />,
     );
-    const badge = screen.getByText(/Downloaded/i);
-    expect(badge.className).toMatch(/bg-bl-red/);
+    const badge = screen.getByText(/^Downloaded$/i);
+    expect(badge.className).toMatch(/bg-composer-accent/);
+    expect(badge.className).toMatch(/text-composer-accent-text/);
   });
 });

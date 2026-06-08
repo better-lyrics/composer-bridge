@@ -49,17 +49,17 @@ describe("ActivityView", () => {
     });
   });
 
-  it("ok entry shows a check icon in bl-red", async () => {
+  it("ok entry shows a check icon tinted with the success color", async () => {
     bindings.RecentActivity.mockResolvedValue([entry({ status: "ok" })]);
     render(<ActivityView />);
     await waitFor(() => {
       const row = screen.getByTestId("activity-row");
       expect(row.dataset.status).toBe("ok");
-      expect(row.querySelector(".text-bl-red")).not.toBeNull();
+      expect(row.querySelector(".text-composer-success")).not.toBeNull();
     });
   });
 
-  it("error entry shows rose-toned icon and surfaces the message", async () => {
+  it("error entry shows the error-toned icon and surfaces the message", async () => {
     bindings.RecentActivity.mockResolvedValue([
       entry({ status: "error", message: "yt-dlp boom" }),
     ]);
@@ -67,7 +67,7 @@ describe("ActivityView", () => {
     await waitFor(() => {
       const row = screen.getByTestId("activity-row");
       expect(row.dataset.status).toBe("error");
-      expect(row.querySelector(".text-rose-500")).not.toBeNull();
+      expect(row.querySelector(".text-composer-error-text")).not.toBeNull();
       expect(screen.getByText(/yt-dlp boom/i)).toBeInTheDocument();
     });
   });

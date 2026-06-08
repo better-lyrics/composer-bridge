@@ -44,10 +44,11 @@ describe("App shell", () => {
     );
   });
 
-  it("active tab highlights with bl-red", () => {
+  it("active tab uses the composer button highlight", () => {
     render(<App />);
     const activityButton = screen.getByRole("button", { name: /activity/i });
     fireEvent.click(activityButton);
-    expect(activityButton.className).toMatch(/bl-red/);
+    expect(activityButton.className).toMatch(/bg-composer-button/);
+    expect(activityButton.getAttribute("aria-current")).toBe("page");
   });
 });

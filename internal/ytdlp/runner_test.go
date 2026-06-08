@@ -83,7 +83,7 @@ func TestFetchInfo_RegularVideoFixture(t *testing.T) {
 func TestStreamAudio_CopiesStdoutToWriter(t *testing.T) {
 	script := writeFakeYtdlp(t, `printf 'hello world'`)
 	var buf bytes.Buffer
-	if err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", &buf); err != nil {
+	if err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", &buf); err != nil {
 		t.Fatalf("StreamAudio: %v", err)
 	}
 	if buf.String() != "hello world" {
@@ -95,7 +95,7 @@ func TestStreamAudio_LargePayload(t *testing.T) {
 	// Emit exactly 1 MiB by repeating a 1 KiB block 1024 times.
 	script := writeFakeYtdlp(t, `head -c 1048576 /dev/zero`)
 	var buf bytes.Buffer
-	if err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", &buf); err != nil {
+	if err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", &buf); err != nil {
 		t.Fatalf("StreamAudio: %v", err)
 	}
 	if buf.Len() != 1<<20 {
@@ -130,7 +130,7 @@ func TestFetchInfo_RejectsInvalidVideoIDsWithoutForking(t *testing.T) {
 
 func TestStreamAudio_RejectsInvalidVideoIDsWithoutForking(t *testing.T) {
 	var buf bytes.Buffer
-	err := StreamAudio(context.Background(), "/nonexistent/binary/path", "bad", &buf)
+	err := StreamAudio(context.Background(), "/nonexistent/binary/path", "bad", "opus", &buf)
 	if err == nil {
 		t.Fatal("StreamAudio: got nil error")
 	}
@@ -167,7 +167,7 @@ func TestFetchInfo_NonZeroExitSurfacesStderr(t *testing.T) {
 func TestStreamAudio_NonZeroExitSurfacesStderr(t *testing.T) {
 	script := writeFakeYtdlp(t, `echo "audio boom" >&2 && exit 3`)
 	var buf bytes.Buffer
-	err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", &buf)
+	err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", &buf)
 	if err == nil {
 		t.Fatal("StreamAudio: got nil error")
 	}
@@ -227,7 +227,7 @@ func TestStreamAudio_ContextCancellationReturnsPromptly(t *testing.T) {
 	var buf bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- StreamAudio(ctx, script, "ZEcqHA7dbwM", &buf)
+		done <- StreamAudio(ctx, script, "ZEcqHA7dbwM", "opus", &buf)
 	}()
 	time.Sleep(50 * time.Millisecond)
 	cancel()
@@ -280,14 +280,14 @@ func TestFetchInfo_ArgvIncludesRegressionFlags(t *testing.T) {
 func TestStreamAudio_ArgvIncludesRegressionFlags(t *testing.T) {
 	script := writeFakeYtdlp(t, `for a in "$@"; do echo "$a" >&2; done; exit 1`)
 	var buf bytes.Buffer
-	err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", &buf)
+	err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", &buf)
 	if err == nil {
 		t.Fatal("expected error to surface argv")
 	}
 	msg := err.Error()
 	wantSubstrs := []string{
 		"-f",
-		"bestaudio[ext=m4a]/bestaudio",
+		"bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio",
 		"-o",
 		"--quiet",
 		"--no-warnings",

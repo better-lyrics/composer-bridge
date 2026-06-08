@@ -1,23 +1,25 @@
-import { SettingRow } from "@/components/setting-row";
+import type { config } from "../../../../wailsjs/go/models";
 import { NumberInput } from "@/components/number-input";
+import { SettingRow } from "@/components/setting-row";
 import { TextInput } from "@/components/text-input";
 import { Toggle } from "@/components/toggle";
-import type { config } from "../../../../wailsjs/go/models";
 
-// -- Interfaces ----------------------------------------------------------------
+// -- Interfaces ---------------------------------------------------------------
 
 interface NetworkingSectionProps {
   config: config.Config;
   update: <K extends keyof config.Config>(key: K, value: config.Config[K]) => void;
 }
 
-// -- Components ----------------------------------------------------------------
+// -- Component ----------------------------------------------------------------
 
-const NetworkingSection: React.FC<NetworkingSectionProps> = ({ config, update }) => {
-  return (
-    <section className="flex flex-col">
-      <h2 className="mb-2 text-sm font-semibold text-text">Networking</h2>
-      <SettingRow label="Listen port" description="HTTP port the bridge serves on">
+const NetworkingSection: React.FC<NetworkingSectionProps> = ({ config, update }) => (
+  <section className="flex flex-col">
+    <h2 className="mb-1 text-xs font-medium uppercase tracking-wider text-composer-text-muted">
+      Networking
+    </h2>
+    <div className="divide-y divide-composer-border">
+      <SettingRow label="Listen port" description="HTTP port the bridge serves on. Takes effect on next restart.">
         <NumberInput
           value={config.listen_port}
           onChange={(v) => update("listen_port", v)}
@@ -28,7 +30,7 @@ const NetworkingSection: React.FC<NetworkingSectionProps> = ({ config, update })
       </SettingRow>
       <SettingRow
         label="Use random port if busy"
-        description="If the listen port is taken, fall back to a random free one"
+        description="Fall back to an ephemeral port when the configured one is taken."
       >
         <Toggle
           checked={config.use_random_if_busy}
@@ -38,11 +40,12 @@ const NetworkingSection: React.FC<NetworkingSectionProps> = ({ config, update })
       </SettingRow>
       <SettingRow
         label="Allowed Composer origins"
-        description="One origin per line. Cross-origin requests outside this list are blocked"
+        description="One origin per line. Cross-origin requests outside this list are blocked."
       >
         <TextInput
           multiline
           rows={4}
+          mono
           value={config.allowed_origins.join("\n")}
           onChange={(v) =>
             update(
@@ -57,8 +60,10 @@ const NetworkingSection: React.FC<NetworkingSectionProps> = ({ config, update })
           className="w-80"
         />
       </SettingRow>
-    </section>
-  );
-};
+    </div>
+  </section>
+);
+
+// -- Exports ------------------------------------------------------------------
 
 export { NetworkingSection };

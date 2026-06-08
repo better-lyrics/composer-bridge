@@ -1,25 +1,27 @@
-import { SettingRow } from "@/components/setting-row";
-import { Toggle } from "@/components/toggle";
+import type { config } from "../../../../wailsjs/go/models";
 import { NumberInput } from "@/components/number-input";
 import { Select } from "@/components/select";
-import type { config } from "../../../../wailsjs/go/models";
+import { SettingRow } from "@/components/setting-row";
+import { Toggle } from "@/components/toggle";
 
-// -- Interfaces ----------------------------------------------------------------
+// -- Interfaces ---------------------------------------------------------------
 
 interface BehaviorSectionProps {
   config: config.Config;
   update: <K extends keyof config.Config>(key: K, value: config.Config[K]) => void;
 }
 
-// -- Components ----------------------------------------------------------------
+// -- Component ----------------------------------------------------------------
 
-const BehaviorSection: React.FC<BehaviorSectionProps> = ({ config, update }) => {
-  return (
-    <section className="flex flex-col">
-      <h2 className="mb-2 text-sm font-semibold text-text">Behavior</h2>
+const BehaviorSection: React.FC<BehaviorSectionProps> = ({ config, update }) => (
+  <section className="flex flex-col">
+    <h2 className="mb-1 text-xs font-medium uppercase tracking-wider text-composer-text-muted">
+      Behavior
+    </h2>
+    <div className="divide-y divide-composer-border">
       <SettingRow
         label="Open at login"
-        description="Start the bridge automatically when you log in"
+        description="Start the bridge automatically when you sign in."
         disabled
       >
         <Toggle
@@ -31,7 +33,7 @@ const BehaviorSection: React.FC<BehaviorSectionProps> = ({ config, update }) => 
       </SettingRow>
       <SettingRow
         label="Show menu bar icon when idle"
-        description="Keep a tray icon visible even with no active activity"
+        description="Keep the tray icon visible even when no work is in flight."
       >
         <Toggle
           checked={config.show_menu_bar_icon}
@@ -41,7 +43,7 @@ const BehaviorSection: React.FC<BehaviorSectionProps> = ({ config, update }) => 
       </SettingRow>
       <SettingRow
         label="Max concurrent downloads"
-        description="Upper bound on parallel yt-dlp jobs"
+        description="Upper bound on parallel yt-dlp jobs."
       >
         <NumberInput
           value={config.max_concurrent}
@@ -51,11 +53,12 @@ const BehaviorSection: React.FC<BehaviorSectionProps> = ({ config, update }) => 
           ariaLabel="Max concurrent downloads"
         />
       </SettingRow>
-      <SettingRow label="Default audio format" description="Preferred container for downloads">
+      <SettingRow label="Default audio format" description="Codec preference for downloads.">
         <Select
-          value={config.audio_format || "m4a"}
+          value={config.audio_format || "opus"}
           onChange={(v) => update("audio_format", v)}
           options={[
+            { value: "opus", label: "opus" },
             { value: "m4a", label: "m4a" },
             { value: "webm", label: "webm" },
             { value: "mp3", label: "mp3" },
@@ -75,8 +78,10 @@ const BehaviorSection: React.FC<BehaviorSectionProps> = ({ config, update }) => 
           ariaLabel="Default audio quality"
         />
       </SettingRow>
-    </section>
-  );
-};
+    </div>
+  </section>
+);
+
+// -- Exports ------------------------------------------------------------------
 
 export { BehaviorSection };

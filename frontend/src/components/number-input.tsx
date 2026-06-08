@@ -1,6 +1,6 @@
 import { cn } from "@/utils/cn";
 
-// -- Interfaces ----------------------------------------------------------------
+// -- Interfaces ---------------------------------------------------------------
 
 interface NumberInputProps {
   value: number;
@@ -12,7 +12,7 @@ interface NumberInputProps {
   ariaLabel?: string;
 }
 
-// -- Components ----------------------------------------------------------------
+// -- Component ----------------------------------------------------------------
 
 const NumberInput: React.FC<NumberInputProps> = ({
   value,
@@ -22,27 +22,27 @@ const NumberInput: React.FC<NumberInputProps> = ({
   step,
   disabled,
   ariaLabel,
-}) => {
-  return (
-    <input
-      type="number"
-      value={Number.isFinite(value) ? value : ""}
-      min={min}
-      max={max}
-      step={step}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      onChange={(e) => {
-        const next = Number(e.target.value);
-        if (Number.isFinite(next)) onChange(next);
-      }}
-      className={cn(
-        "w-32 rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm text-text",
-        "focus:border-bl-red focus:outline-none focus:ring-1 focus:ring-bl-red",
-        "disabled:cursor-not-allowed disabled:opacity-50",
-      )}
-    />
-  );
-};
+}) => (
+  <input
+    type="number"
+    value={Number.isFinite(value) ? value : ""}
+    min={min}
+    max={max}
+    step={step}
+    disabled={disabled}
+    aria-label={ariaLabel}
+    onChange={(e) => {
+      const next = Number(e.target.value);
+      if (Number.isFinite(next)) onChange(next);
+    }}
+    className={cn(
+      "h-7 w-24 px-2 text-sm font-mono rounded-md bg-composer-input border border-composer-border text-composer-text",
+      "focus:outline-none focus:border-composer-accent",
+      "disabled:cursor-not-allowed disabled:opacity-50",
+    )}
+  />
+);
+
+// -- Exports ------------------------------------------------------------------
 
 export { NumberInput };

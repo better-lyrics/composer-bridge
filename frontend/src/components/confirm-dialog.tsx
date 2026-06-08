@@ -1,6 +1,6 @@
-import { cn } from "@/utils/cn";
+import { Button } from "@/components/button";
 
-// -- Interfaces ----------------------------------------------------------------
+// -- Interfaces ---------------------------------------------------------------
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -13,7 +13,7 @@ interface ConfirmDialogProps {
   destructive?: boolean;
 }
 
-// -- Components ----------------------------------------------------------------
+// -- Component ----------------------------------------------------------------
 
 const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   open,
@@ -31,42 +31,28 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-6"
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-sm rounded-lg border border-border bg-surface-elevated p-5 shadow-xl"
+        className="w-full max-w-md rounded-xl border border-composer-border bg-composer-bg-dark p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-base font-semibold text-text">{title}</h2>
-        {description && <p className="mt-2 text-sm text-text-muted">{description}</p>}
+        <h2 className="text-lg font-medium text-composer-text">{title}</h2>
+        {description && <p className="mt-2 text-sm text-composer-text-secondary">{description}</p>}
         <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className={cn(
-              "rounded-md border border-border bg-surface px-3 py-1.5 text-sm cursor-pointer",
-              "text-text-muted hover:text-text",
-            )}
-          >
+          <Button variant="secondary" size="sm" onClick={onCancel}>
             {cancelLabel}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className={cn(
-              "rounded-md px-3 py-1.5 text-sm font-medium cursor-pointer",
-              destructive
-                ? "bg-bl-red text-white hover:bg-bl-red-hover"
-                : "bg-bl-red text-white hover:bg-bl-red-hover",
-            )}
-          >
+          </Button>
+          <Button variant={destructive ? "destructive" : "primary"} size="sm" onClick={onConfirm}>
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
   );
 };
+
+// -- Exports ------------------------------------------------------------------
 
 export { ConfirmDialog };

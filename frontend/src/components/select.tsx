@@ -1,6 +1,6 @@
 import { cn } from "@/utils/cn";
 
-// -- Interfaces ----------------------------------------------------------------
+// -- Interfaces ---------------------------------------------------------------
 
 interface SelectOption<T extends string> {
   value: T;
@@ -15,7 +15,7 @@ interface SelectProps<T extends string> {
   ariaLabel?: string;
 }
 
-// -- Components ----------------------------------------------------------------
+// -- Component ----------------------------------------------------------------
 
 function Select<T extends string>({
   value,
@@ -31,19 +31,21 @@ function Select<T extends string>({
       disabled={disabled}
       aria-label={ariaLabel}
       className={cn(
-        "rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm text-text",
-        "cursor-pointer focus:border-bl-red focus:outline-none focus:ring-1 focus:ring-bl-red",
+        "h-7 px-2 text-sm rounded-lg bg-composer-input text-composer-text border border-composer-border",
+        "focus:outline-none focus:border-composer-accent cursor-pointer",
         "disabled:cursor-not-allowed disabled:opacity-50",
       )}
     >
       {options.map((opt) => (
-        <option key={opt.value} value={opt.value}>
+        <option key={opt.value} value={opt.value} className="bg-composer-bg-dark">
           {opt.label}
         </option>
       ))}
     </select>
   );
 }
+
+// -- Exports ------------------------------------------------------------------
 
 export { Select };
 export type { SelectOption };

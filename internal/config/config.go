@@ -42,7 +42,7 @@ func Defaults() Config {
 		OpenAtLogin:     false,
 		ShowMenuBarIcon: true,
 		MaxConcurrent:   3,
-		AudioFormat:     "m4a",
+		AudioFormat:     "opus",
 		AudioQuality:    "best",
 		LogLevel:        "info",
 	}

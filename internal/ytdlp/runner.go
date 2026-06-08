@@ -73,15 +73,15 @@ func FetchInfo(ctx context.Context, ytdlpPath, videoID string) (*Info, error) {
 	return info, nil
 }
 
-// StreamAudio runs `yt-dlp -f bestaudio` for the given videoID and copies its
-// stdout into w. Rejects malformed video IDs before forking. Honors ctx
-// cancellation.
-func StreamAudio(ctx context.Context, ytdlpPath, videoID string, w io.Writer) error {
+// StreamAudio runs yt-dlp for the given videoID using the format selector chosen
+// by FormatSelector(format) and copies its stdout into w. Rejects malformed video
+// IDs before forking. Honors ctx cancellation. An empty format defaults to opus.
+func StreamAudio(ctx context.Context, ytdlpPath, videoID, format string, w io.Writer) error {
 	if err := validateVideoID(videoID); err != nil {
 		return err
 	}
 	args := []string{
-		"-f", "bestaudio[ext=m4a]/bestaudio",
+		"-f", FormatSelector(format),
 		"-o", "-",
 		"--quiet",
 		"--no-warnings",
