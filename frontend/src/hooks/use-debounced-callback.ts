@@ -10,6 +10,7 @@ export function useDebouncedCallback<TArgs extends unknown[]>(
 ): (...args: TArgs) => void {
   const fnRef = useRef(fn);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingArgsRef = useRef<TArgs | null>(null);
 
   useEffect(() => {
     fnRef.current = fn;
@@ -17,15 +18,24 @@ export function useDebouncedCallback<TArgs extends unknown[]>(
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+        if (pendingArgsRef.current) {
+          fnRef.current(...pendingArgsRef.current);
+          pendingArgsRef.current = null;
+        }
+      }
     };
   }, []);
 
   return useCallback(
     (...args: TArgs) => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      pendingArgsRef.current = args;
       timerRef.current = setTimeout(() => {
         timerRef.current = null;
+        pendingArgsRef.current = null;
         fnRef.current(...args);
       }, delayMs);
     },
