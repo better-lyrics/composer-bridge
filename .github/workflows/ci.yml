@@ -42,6 +42,18 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
+
+      # The frontend's tsc step needs wails-generated bindings; wails generate
+      # needs main.go to compile, which needs the embed dir to exist. Stub it
+      # so generate can run, then a real pnpm build replaces it.
+      - name: Stub frontend/dist for go:embed
+        run: mkdir -p frontend/dist && touch frontend/dist/.keep
+
+      - name: Generate Wails bindings
+        run: wails generate module
+
       - name: Build frontend
         working-directory: frontend
         run: pnpm build
@@ -87,9 +99,9 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
 
-      - name: Build frontend
-        working-directory: frontend
-        run: pnpm build
+      # See the backend job for the rationale on stubbing dist before generate.
+      - name: Stub frontend/dist for go:embed
+        run: mkdir -p frontend/dist && touch frontend/dist/.keep
 
       - name: Generate Wails bindings
         run: wails generate module
