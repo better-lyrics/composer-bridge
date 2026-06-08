@@ -58,11 +58,12 @@ func (c *Controller) Register() {
 }
 
 func (c *Controller) onReady() {
-	iconBytes := icons.Default
 	if runtime.GOOS == "darwin" {
+		// icons.Mac is the colour appicon for now; template mode desaturates it.
+		// Swap for a monochrome silhouette PNG when one is designed.
 		systray.SetTemplateIcon(icons.Mac, icons.Mac)
 	} else {
-		systray.SetIcon(iconBytes)
+		systray.SetIcon(icons.Default)
 	}
 	systray.SetTooltip("Composer Bridge")
 
@@ -87,6 +88,6 @@ func (c *Controller) onReady() {
 	}()
 }
 
-func (c *Controller) onExit() {
-	// systray cleanup runs here; nothing to do for now.
-}
+// onExit satisfies systray.Register's required callback signature; no cleanup
+// is needed today because the click goroutine owns its own lifecycle.
+func (c *Controller) onExit() {}
