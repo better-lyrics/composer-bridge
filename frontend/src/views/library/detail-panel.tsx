@@ -48,6 +48,8 @@ const MetaRow: React.FC<{ label: string; value: React.ReactNode; mono?: boolean 
 
 // -- Component ----------------------------------------------------------------
 
+const TRANSITION_MS = 220;
+
 const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   const selectedVideoId = useUIStore((s) => s.selectedVideoId);
   const setSelected = useUIStore((s) => s.setSelectedVideoId);
@@ -55,14 +57,13 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [present, setPresent] = useState(false);
+  const [enterPhase, setEnterPhase] = useState(false);
   const isOpen = selectedVideoId !== null;
 
   useEffect(() => {
-    if (!selectedVideoId) {
-      setTrack(null);
-      setDownloadError(null);
-      return;
-    }
+    if (!selectedVideoId) return;
+    setDownloadError(null);
     let cancelled = false;
     GetTrack(selectedVideoId)
       .then((t) => {
@@ -76,7 +77,23 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
     };
   }, [selectedVideoId]);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (isOpen && !present) {
+      setPresent(true);
+      const id = requestAnimationFrame(() =>
+        requestAnimationFrame(() => setEnterPhase(true)),
+      );
+      return () => cancelAnimationFrame(id);
+    }
+    if (!isOpen && present) {
+      setEnterPhase(false);
+      const t = setTimeout(() => setPresent(false), TRANSITION_MS);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [isOpen, present]);
+
+  if (!present) return null;
 
   const handleClose = () => setSelected(null);
 
@@ -124,14 +141,23 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   return (
     <>
       <div
-        className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm"
         onClick={handleClose}
         aria-hidden="true"
+        className={cn(
+          "fixed inset-0 z-30 bg-black/60 backdrop-blur-sm transition-opacity ease-out",
+          enterPhase ? "opacity-100" : "opacity-0",
+        )}
+        style={{ transitionDuration: `${TRANSITION_MS}ms` }}
       />
       <aside
         role="complementary"
         aria-label="Track details"
-        className="fixed top-0 right-0 z-40 flex h-full w-[400px] flex-col border-l border-composer-border bg-composer-bg-dark"
+        className={cn(
+          "fixed top-0 right-0 z-40 flex h-full w-[400px] flex-col border-l border-composer-border bg-composer-bg-dark shadow-2xl",
+          "transition-transform ease-out",
+          enterPhase ? "translate-x-0" : "translate-x-full",
+        )}
+        style={{ transitionDuration: `${TRANSITION_MS}ms` }}
       >
         <header className="flex items-center justify-between border-b border-composer-border px-5 py-3">
           <span className="text-xs uppercase tracking-wider text-composer-text-muted">Track details</span>
