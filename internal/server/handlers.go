@@ -137,8 +137,20 @@ func (h *Handlers) resolveTrackForAudio(ctx context.Context, videoID string) *li
 	track := trackFromInfo(info)
 	if err := h.Library.InsertTrack(&track); err != nil {
 		slog.Warn("audio: library insert failed", "videoID", videoID, "err", err)
+		return &track
 	}
+	h.emitLibraryUpdate(track.VideoID)
 	return &track
+}
+
+// emitLibraryUpdate pushes a library:update event to the frontend so any open
+// library view can refresh without polling. Silent no-op when no Emitter is
+// wired (e.g., in unit tests).
+func (h *Handlers) emitLibraryUpdate(videoID string) {
+	if h.Emitter == nil || h.EmitterCtx == nil {
+		return
+	}
+	h.Emitter.Emit(h.EmitterCtx, "library:update", map[string]string{"video_id": videoID})
 }
 
 // Import fetches metadata for the body's video_id, inserts a track row, and returns the inserted record. Wrapped in an activity row.
@@ -167,6 +179,7 @@ func (h *Handlers) Import(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "library insert failed")
 		return
 	}
+	h.emitLibraryUpdate(track.VideoID)
 	h.endActivity(actID, activity.StatusOK, "")
 	writeJSON(w, http.StatusOK, track)
 }
