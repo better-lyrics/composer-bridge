@@ -6,9 +6,11 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -149,10 +151,33 @@ func (a *App) SupportsAutostart() bool {
 	return runtime.GOOS == "darwin"
 }
 
-// OpenInComposer returns the Composer deep-link URL for videoID. The frontend is
-// expected to open it via the Wails runtime, keeping this side pure for testability.
+// OpenInComposer returns the Composer deep-link URL for videoID. Param names
+// match Composer's useImportFromQuery handler (title / artist / album / duration
+// / videoId) so the lyrics-import modal pre-fills. Metadata is pulled from the
+// library when the track is known; otherwise only videoId is set.
 func (a *App) OpenInComposer(videoID string) string {
-	return fmt.Sprintf("https://composer.boidu.dev/?yt=%s", videoID)
+	u, err := url.Parse("https://composer.boidu.dev/")
+	if err != nil {
+		return "https://composer.boidu.dev/?videoId=" + url.QueryEscape(videoID)
+	}
+	q := u.Query()
+	q.Set("videoId", videoID)
+	if track, err := a.library.GetTrack(videoID); err == nil && track != nil {
+		if track.Title != "" {
+			q.Set("title", track.Title)
+		}
+		if track.Artist != "" {
+			q.Set("artist", track.Artist)
+		}
+		if track.Album != "" {
+			q.Set("album", track.Album)
+		}
+		if track.DurationSec > 0 {
+			q.Set("duration", strconv.Itoa(track.DurationSec))
+		}
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // OpenInYouTube returns the canonical YouTube watch URL for videoID.

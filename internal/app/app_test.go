@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -221,12 +222,41 @@ func TestSaveConfig_PersistsAndUpdatesInMemoryCopy(t *testing.T) {
 	}
 }
 
-func TestOpenInComposer_ReturnsCanonicalURL(t *testing.T) {
+func TestOpenInComposer_NoLibraryEntry_ReturnsVideoIdOnly(t *testing.T) {
 	a, _, _, _ := newTestApp(t)
 	got := a.OpenInComposer("dQw4w9WgXcQ")
-	want := "https://composer.boidu.dev/?yt=dQw4w9WgXcQ"
+	want := "https://composer.boidu.dev/?videoId=dQw4w9WgXcQ"
 	if got != want {
 		t.Errorf("OpenInComposer: got %q, want %q", got, want)
+	}
+}
+
+func TestOpenInComposer_WithLibraryEntry_IncludesMetadata(t *testing.T) {
+	a, lib, _, _ := newTestApp(t)
+	track := library.Track{
+		VideoID:      "dQw4w9WgXcQ",
+		Title:        "Never Gonna Give You Up",
+		Artist:       "Rick Astley",
+		Album:        "Whenever You Need Somebody",
+		DurationSec:  213,
+		ThumbnailURL: "https://example.com/thumb.jpg",
+		SourceURL:    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+		ImportedAt:   1,
+	}
+	if err := lib.InsertTrack(&track); err != nil {
+		t.Fatalf("InsertTrack: %v", err)
+	}
+	got := a.OpenInComposer("dQw4w9WgXcQ")
+	for _, want := range []string{
+		"album=Whenever+You+Need+Somebody",
+		"artist=Rick+Astley",
+		"duration=213",
+		"title=Never+Gonna+Give+You+Up",
+		"videoId=dQw4w9WgXcQ",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("OpenInComposer URL missing %q in %q", want, got)
+		}
 	}
 }
 
