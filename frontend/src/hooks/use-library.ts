@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ListTracks } from "../../wailsjs/go/app/App";
 import type { library } from "../../wailsjs/go/models";
-import { EventsOff, EventsOn } from "../../wailsjs/runtime/runtime";
+import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { useUIStore, type LibrarySort } from "@/stores/ui-store";
 
 const LIBRARY_EVENT = "library:update";
@@ -68,17 +68,14 @@ export function useLibrary(): UseLibraryResult {
   }, [raw, reload]);
 
   useEffect(() => {
+    let off: (() => void) | undefined;
     try {
-      EventsOn(LIBRARY_EVENT, () => reload());
+      off = EventsOn(LIBRARY_EVENT, () => reload());
     } catch (err) {
       console.error("EventsOn library:update failed", err);
     }
     return () => {
-      try {
-        EventsOff(LIBRARY_EVENT);
-      } catch (err) {
-        console.error("EventsOff library:update failed", err);
-      }
+      if (off) off();
     };
   }, [reload]);
 

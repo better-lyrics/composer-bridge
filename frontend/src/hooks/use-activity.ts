@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { RecentActivity } from "../../wailsjs/go/app/App";
 import type { activity } from "../../wailsjs/go/models";
-import { EventsOff, EventsOn } from "../../wailsjs/runtime/runtime";
+import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { useUIStore } from "@/stores/ui-store";
 
 // -- Constants ----------------------------------------------------------------
@@ -52,17 +52,14 @@ export function useActivity(limit: number): UseActivityResult {
       const next = [entry, ...prev.filter((e) => e.id !== entry.id)].slice(0, limitRef.current);
       setEntries(next);
     };
+    let off: (() => void) | undefined;
     try {
-      EventsOn(EVENT_NAME, handler);
+      off = EventsOn(EVENT_NAME, handler);
     } catch (err) {
       console.error("EventsOn failed", err);
     }
     return () => {
-      try {
-        EventsOff(EVENT_NAME);
-      } catch (err) {
-        console.error("EventsOff failed", err);
-      }
+      if (off) off();
     };
   }, [setEntries]);
 
