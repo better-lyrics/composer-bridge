@@ -7,6 +7,7 @@ require (
 	github.com/minio/selfupdate v0.6.0
 	github.com/wailsapp/wails/v2 v2.10.1
 	golang.org/x/mod v0.36.0
+	golang.org/x/sys v0.46.0
 	modernc.org/sqlite v1.34.4
 )
 
@@ -48,7 +49,6 @@ require (
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	golang.org/x/crypto v0.33.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
-	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 	modernc.org/gc/v3 v3.0.0-20240107210532-573471604cb6 // indirect
 	modernc.org/libc v1.55.3 // indirect
