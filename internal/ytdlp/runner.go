@@ -1,0 +1,100 @@
+package ytdlp
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"os/exec"
+	"regexp"
+	"time"
+)
+
+// VideoIDRe matches the canonical 11-character YouTube video ID.
+var VideoIDRe = regexp.MustCompile(`^[a-zA-Z0-9_-]{11}$`)
+
+const (
+	stderrTailLimit = 500
+	// killWaitDelay bounds the time we wait for orphaned child processes
+	// (e.g. ffmpeg) holding inherited stdout/stderr pipes after the parent
+	// is killed by context cancellation.
+	killWaitDelay = 250 * time.Millisecond
+)
+
+func videoURL(videoID string) string {
+	return "https://www.youtube.com/watch?v=" + videoID
+}
+
+func validateVideoID(videoID string) error {
+	if !VideoIDRe.MatchString(videoID) {
+		return fmt.Errorf("invalid videoID %q", videoID)
+	}
+	return nil
+}
+
+func stderrTail(buf *bytes.Buffer) string {
+	b := buf.Bytes()
+	if len(b) <= stderrTailLimit {
+		return string(b)
+	}
+	return string(b[len(b)-stderrTailLimit:])
+}
+
+func wrapRunError(verb, videoID string, runErr error, stderr *bytes.Buffer) error {
+	return fmt.Errorf("yt-dlp %s %s: %w (stderr: %s)", verb, videoID, runErr, stderrTail(stderr))
+}
+
+// FetchInfo runs `yt-dlp -j` for the given videoID and parses the JSON output.
+// Rejects malformed video IDs before forking. Honors ctx cancellation.
+func FetchInfo(ctx context.Context, ytdlpPath, videoID string) (*Info, error) {
+	if err := validateVideoID(videoID); err != nil {
+		return nil, err
+	}
+	args := []string{
+		"-j",
+		"--skip-download",
+		"--no-warnings",
+		"--no-playlist",
+		"--extractor-args", "youtube:player_client=web,web_music",
+		videoURL(videoID),
+	}
+	cmd := exec.CommandContext(ctx, ytdlpPath, args...)
+	cmd.WaitDelay = killWaitDelay
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, wrapRunError("info", videoID, err, &stderr)
+	}
+	info, err := Parse(stdout.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("yt-dlp info %s: %w", videoID, err)
+	}
+	return info, nil
+}
+
+// StreamAudio runs `yt-dlp -f bestaudio` for the given videoID and copies its
+// stdout into w. Rejects malformed video IDs before forking. Honors ctx
+// cancellation.
+func StreamAudio(ctx context.Context, ytdlpPath, videoID string, w io.Writer) error {
+	if err := validateVideoID(videoID); err != nil {
+		return err
+	}
+	args := []string{
+		"-f", "bestaudio[ext=m4a]/bestaudio",
+		"-o", "-",
+		"--quiet",
+		"--no-warnings",
+		"--no-playlist",
+		videoURL(videoID),
+	}
+	cmd := exec.CommandContext(ctx, ytdlpPath, args...)
+	cmd.WaitDelay = killWaitDelay
+	var stderr bytes.Buffer
+	cmd.Stdout = w
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return wrapRunError("audio", videoID, err, &stderr)
+	}
+	return nil
+}
