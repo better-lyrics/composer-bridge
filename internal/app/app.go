@@ -237,10 +237,12 @@ func currentExecPath() string {
 	return p
 }
 
-// SupportsAutostart reports whether the current platform has an autostart
-// implementation. The frontend disables the toggle when this is false.
+// SupportsAutostart reports whether the current platform has a working
+// autostart implementation. Now true on darwin (LaunchAgent), windows (HKCU
+// Run key), and linux (XDG autostart .desktop). The frontend keeps its
+// platform gate but the answer is always yes today.
 func (a *App) SupportsAutostart() bool {
-	return runtime.GOOS == "darwin"
+	return true
 }
 
 // OpenInComposer returns the Composer deep-link URL for videoID. Param names

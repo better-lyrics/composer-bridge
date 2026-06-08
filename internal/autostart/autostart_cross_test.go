@@ -1,14 +1,9 @@
 package autostart
 
-import (
-	"runtime"
-	"testing"
-)
+import "testing"
 
 func TestSetEnabledIsCallable(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("autostart not yet implemented on this platform; covered by Tasks 9 and 10")
-	}
+	// On every platform SetEnabled(false, "") must succeed (idempotent disable).
 	if err := SetEnabled(false, ""); err != nil {
 		t.Errorf("SetEnabled(false, \"\"): %v", err)
 	}

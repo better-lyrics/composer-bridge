@@ -360,3 +360,10 @@ func TestActiveReturnsTheStartedUpApp(t *testing.T) {
 		t.Errorf("Active() should return the most recently started-up App")
 	}
 }
+
+func TestSupportsAutostartIsTrueOnDarwinLinuxWindows(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	if !a.SupportsAutostart() {
+		t.Errorf("SupportsAutostart should be true now that all 3 platforms implement it")
+	}
+}
