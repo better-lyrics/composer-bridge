@@ -109,7 +109,7 @@ func main() {
 		MinWidth:         800,
 		MinHeight:        540,
 		AssetServer:      &assetserver.Options{Assets: assets},
-		BackgroundColour: &options.RGBA{R: 0x28, G: 0x29, B: 0x2c, A: 1},
+		BackgroundColour: &options.RGBA{R: 0x28, G: 0x29, B: 0x2c, A: 255},
 		Mac: &mac.Options{
 			TitleBar:             mac.TitleBarHiddenInset(),
 			Appearance:           mac.NSAppearanceNameDarkAqua,
