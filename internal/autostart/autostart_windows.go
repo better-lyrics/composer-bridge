@@ -5,6 +5,7 @@ package autostart
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"golang.org/x/sys/windows/registry"
 )
@@ -36,6 +37,9 @@ func setEnabledWithName(enabled bool, execPath, name string) error {
 	}
 	if execPath == "" {
 		return errors.New("autostart: execPath required when enabling")
+	}
+	if strings.ContainsAny(execPath, "\n\r\"") {
+		return errors.New("autostart: execPath contains illegal character")
 	}
 	return k.SetStringValue(name, `"`+execPath+`"`)
 }

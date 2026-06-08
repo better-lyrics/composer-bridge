@@ -74,3 +74,12 @@ func TestIsEnabledReflectsFilePresence(t *testing.T) {
 		t.Error("IsEnabled true after SetEnabled(false)")
 	}
 }
+
+func TestSetEnabledRejectsNewlineInExecPath(t *testing.T) {
+	setXDG(t)
+	for _, bad := range []string{"/tmp/app\n.exe", "/tmp/app\r.exe", "/tmp/app\r\n.exe"} {
+		if err := SetEnabled(true, bad); err == nil {
+			t.Errorf("SetEnabled(true, %q): got nil, want error", bad)
+		}
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const desktopFileName = "composer-bridge.desktop"
@@ -18,6 +19,7 @@ Exec=%s
 Terminal=false
 Hidden=false
 X-GNOME-Autostart-enabled=true
+StartupNotify=false
 `
 
 func SetEnabled(enabled bool, execPath string) error {
@@ -34,10 +36,21 @@ func SetEnabled(enabled bool, execPath string) error {
 	if execPath == "" {
 		return fmt.Errorf("autostart: execPath required when enabling")
 	}
+	if strings.ContainsAny(execPath, "\n\r") {
+		return fmt.Errorf("autostart: execPath contains illegal character")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("autostart mkdir %s: %w", filepath.Dir(path), err)
 	}
-	return os.WriteFile(path, []byte(fmt.Sprintf(desktopTemplate, execPath)), 0o644)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(fmt.Sprintf(desktopTemplate, execPath)), 0o644); err != nil {
+		return fmt.Errorf("autostart write %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("autostart install %s: %w", path, err)
+	}
+	return nil
 }
 
 func IsEnabled() bool {

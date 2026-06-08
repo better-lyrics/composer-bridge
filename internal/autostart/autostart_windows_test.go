@@ -69,3 +69,12 @@ func TestRefreshIsANoopWhenAutostartDisabled(t *testing.T) {
 		t.Errorf("Refresh enabled autostart from disabled state")
 	}
 }
+
+func TestSetEnabledRejectsNewlineOrQuoteInExecPath(t *testing.T) {
+	t.Cleanup(func() { clean(t) })
+	for _, bad := range []string{"C:\\bad\npath.exe", "C:\\bad\rpath.exe", `C:\bad"path.exe`} {
+		if err := setEnabledWithName(true, bad, testValueName); err == nil {
+			t.Errorf("setEnabledWithName(true, %q): got nil, want error", bad)
+		}
+	}
+}

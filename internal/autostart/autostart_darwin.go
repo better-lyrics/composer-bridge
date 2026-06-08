@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const launchAgentLabel = "dev.boidu.composer-bridge"
@@ -58,6 +59,9 @@ func SetEnabled(enabled bool, execPath string) error {
 	}
 	if execPath == "" {
 		return fmt.Errorf("autostart: empty exec path")
+	}
+	if strings.ContainsAny(execPath, "\n\r") {
+		return fmt.Errorf("autostart: execPath contains illegal character")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("mkdir launchagents: %w", err)

@@ -63,3 +63,12 @@ func TestSetEnabled_EmptyExecPathRejected(t *testing.T) {
 		t.Error("SetEnabled(true, \"\"): got nil, want error")
 	}
 }
+
+func TestSetEnabled_RejectsNewlineInExecPath(t *testing.T) {
+	withFakeHome(t)
+	for _, bad := range []string{"/tmp/app\n.exe", "/tmp/app\r.exe"} {
+		if err := SetEnabled(true, bad); err == nil {
+			t.Errorf("SetEnabled(true, %q): got nil, want error", bad)
+		}
+	}
+}
