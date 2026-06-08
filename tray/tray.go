@@ -2,10 +2,12 @@
 // Wails app. The tray runs in a background goroutine; Wails owns main.
 package tray
 
+import "context"
+
 // Controller is the long-lived handle to the tray menu. Owns the runtime
 // context so menu click handlers can call WindowShow / Quit on the right app.
 type Controller struct {
-	ctx any
+	ctx context.Context
 }
 
 // New builds an unbound Controller. Call BindContext from OnStartup once Wails
@@ -15,7 +17,7 @@ func New() *Controller {
 }
 
 // BindContext stores the Wails runtime context for use by menu handlers.
-func (c *Controller) BindContext(ctx any) {
+func (c *Controller) BindContext(ctx context.Context) {
 	c.ctx = ctx
 }
 
@@ -24,4 +26,10 @@ func (c *Controller) BindContext(ctx any) {
 // has finished starting up.
 func (c *Controller) HasContext() bool {
 	return c.ctx != nil
+}
+
+// Context returns the bound Wails runtime context, or nil if BindContext has
+// not been called yet.
+func (c *Controller) Context() context.Context {
+	return c.ctx
 }

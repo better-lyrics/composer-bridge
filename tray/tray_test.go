@@ -1,6 +1,9 @@
 package tray
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestNewReturnsNonNilController(t *testing.T) {
 	c := New()
@@ -18,12 +21,23 @@ func TestControllerStartsWithUnsetContext(t *testing.T) {
 
 func TestBindContextStoresTheContext(t *testing.T) {
 	c := New()
-	c.BindContext(testCtx())
+	c.BindContext(context.Background())
 	if !c.HasContext() {
-		t.Error("HasContext should be true after BindContext")
+		t.Error("HasContext should be true after BindContext with a real ctx")
 	}
 }
 
-func testCtx() ctxKey { return ctxKey{value: "stub"} }
+func TestContextReturnsBoundContext(t *testing.T) {
+	c := New()
+	parent := context.WithValue(context.Background(), ctxSentinel{}, "ok")
+	c.BindContext(parent)
+	got := c.Context()
+	if got == nil {
+		t.Fatal("Context() returned nil after BindContext")
+	}
+	if got.Value(ctxSentinel{}) != "ok" {
+		t.Errorf("Context() did not preserve bound value")
+	}
+}
 
-type ctxKey struct{ value string }
+type ctxSentinel struct{}
