@@ -8,8 +8,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// ErrNotFound is returned when a track does not exist in the library.
 var ErrNotFound = errors.New("track not found")
 
+// Track is one imported YouTube video. Optional metadata fields default to empty/0.
 type Track struct {
 	ID           int64
 	VideoID      string
@@ -28,8 +30,13 @@ type Track struct {
 	AudioSize    int64
 }
 
+// Library is a SQLite-backed store of imported tracks. Safe for concurrent use.
 type Library struct {
 	db *sql.DB
+}
+
+type rowScanner interface {
+	Scan(dest ...any) error
 }
 
 const schema = `
@@ -55,6 +62,7 @@ CREATE INDEX IF NOT EXISTS idx_tracks_imported_at ON tracks(imported_at DESC);
 
 const trackColumns = `id, video_id, title, artist, album, release_year, duration_sec, thumbnail_url, thumb_path, is_music, music_type, source_url, imported_at, audio_path, audio_size`
 
+// Open opens (and creates if missing) the SQLite-backed library at path. Schema application is idempotent.
 func Open(path string) (*Library, error) {
 	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
 	if err != nil {
@@ -67,8 +75,10 @@ func Open(path string) (*Library, error) {
 	return &Library{db: db}, nil
 }
 
+// Close releases the underlying database handle.
 func (l *Library) Close() error { return l.db.Close() }
 
+// InsertTrack upserts the track keyed by VideoID. On success, t.ID is set to the persisted row id (stable across upserts).
 func (l *Library) InsertTrack(t *Track) error {
 	const stmt = `
 INSERT INTO tracks (video_id, title, artist, album, release_year, duration_sec, thumbnail_url, thumb_path, is_music, music_type, source_url, imported_at, audio_path, audio_size)
@@ -89,9 +99,7 @@ RETURNING id;
 	).Scan(&t.ID)
 }
 
-func scanTrack(s interface {
-	Scan(dest ...any) error
-}, t *Track) error {
+func scanTrack(s rowScanner, t *Track) error {
 	return s.Scan(
 		&t.ID, &t.VideoID, &t.Title, &t.Artist, &t.Album, &t.ReleaseYear, &t.DurationSec,
 		&t.ThumbnailURL, &t.ThumbPath, &t.IsMusic, &t.MusicType, &t.SourceURL,
@@ -99,6 +107,7 @@ func scanTrack(s interface {
 	)
 }
 
+// GetTrack returns the track matching videoID, or ErrNotFound if no row matches.
 func (l *Library) GetTrack(videoID string) (*Track, error) {
 	q := `SELECT ` + trackColumns + ` FROM tracks WHERE video_id = ?`
 	var t Track
@@ -112,6 +121,7 @@ func (l *Library) GetTrack(videoID string) (*Track, error) {
 	return &t, nil
 }
 
+// ListTracks returns every track in the library, newest import first.
 func (l *Library) ListTracks() ([]Track, error) {
 	q := `SELECT ` + trackColumns + ` FROM tracks ORDER BY imported_at DESC`
 	rows, err := l.db.Query(q)
@@ -130,6 +140,7 @@ func (l *Library) ListTracks() ([]Track, error) {
 	return out, rows.Err()
 }
 
+// MarkAudioDownloaded records the on-disk audio file for an existing track. Returns ErrNotFound if no row matches videoID.
 func (l *Library) MarkAudioDownloaded(videoID, path string, size int64) error {
 	res, err := l.db.Exec(`UPDATE tracks SET audio_path = ?, audio_size = ? WHERE video_id = ?`, path, size, videoID)
 	if err != nil {
@@ -145,6 +156,7 @@ func (l *Library) MarkAudioDownloaded(videoID, path string, size int64) error {
 	return nil
 }
 
+// RemoveTrack deletes the track matching videoID. Returns ErrNotFound if no row matches.
 func (l *Library) RemoveTrack(videoID string) error {
 	res, err := l.db.Exec(`DELETE FROM tracks WHERE video_id = ?`, videoID)
 	if err != nil {

@@ -130,8 +130,8 @@ func TestListTracks_OrderedByImportedAtDesc(t *testing.T) {
 	newest := sampleTrack("ccccccccccc", 3000)
 
 	for _, tr := range []Track{oldest, newest, middle} {
-		copy := tr
-		if err := lib.InsertTrack(&copy); err != nil {
+		track := tr
+		if err := lib.InsertTrack(&track); err != nil {
 			t.Fatalf("InsertTrack %s: %v", tr.VideoID, err)
 		}
 	}
@@ -246,6 +246,25 @@ func TestMarkAudioDownloaded_NotFound(t *testing.T) {
 	err := lib.MarkAudioDownloaded("missing", "audio/missing.opus", 100)
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("MarkAudioDownloaded(missing): got %v, want ErrNotFound", err)
+	}
+}
+
+func TestMarkAudioDownloaded_NoOpUpdateReturnsNil(t *testing.T) {
+	lib, _ := openTempLibrary(t)
+
+	tr := sampleTrack("dQw4w9WgXcQ", 1000)
+	if err := lib.InsertTrack(&tr); err != nil {
+		t.Fatalf("InsertTrack: %v", err)
+	}
+
+	const path = "audio/dQw4w9WgXcQ.opus"
+	const size int64 = 1234567
+
+	if err := lib.MarkAudioDownloaded("dQw4w9WgXcQ", path, size); err != nil {
+		t.Fatalf("first MarkAudioDownloaded: %v", err)
+	}
+	if err := lib.MarkAudioDownloaded("dQw4w9WgXcQ", path, size); err != nil {
+		t.Fatalf("second MarkAudioDownloaded (no-op): got %v, want nil", err)
 	}
 }
 
