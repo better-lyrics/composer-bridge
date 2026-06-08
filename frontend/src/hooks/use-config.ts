@@ -42,13 +42,17 @@ export function useConfig(): UseConfigResult {
     };
   }, [cfg, setBridgeConfig]);
 
+  const saveSeqRef = useRef(0);
   const persist = useDebouncedCallback((next: config.Config) => {
     setSaveStatus("saving");
+    const seq = ++saveSeqRef.current;
     SaveConfig(next)
-      .then(() => setSaveStatus("saved"))
+      .then(() => {
+        if (seq === saveSeqRef.current) setSaveStatus("saved");
+      })
       .catch((err) => {
         console.error("SaveConfig failed", err);
-        setSaveStatus("error");
+        if (seq === saveSeqRef.current) setSaveStatus("error");
       });
   }, SAVE_DEBOUNCE_MS);
 
