@@ -55,8 +55,11 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   const setSelected = useUIStore((s) => s.setSelectedVideoId);
   const [track, setTrack] = useState<library.Track | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const activeId = selectedVideoId ?? track?.video_id ?? "";
+  const downloading = useUIStore((s) => activeId !== "" && s.activeDownloads.has(activeId));
+  const beginDownload = useUIStore((s) => s.beginDownload);
+  const endDownload = useUIStore((s) => s.endDownload);
   const [present, setPresent] = useState(false);
   const [enterPhase, setEnterPhase] = useState(false);
   const isOpen = selectedVideoId !== null;
@@ -111,7 +114,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
 
   const downloadAudio = async () => {
     if (!track) return;
-    setDownloading(true);
+    beginDownload(track.video_id);
     setDownloadError(null);
     try {
       const refreshed = await DownloadAudio(track.video_id);
@@ -119,7 +122,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
     } catch (err: unknown) {
       setDownloadError(err instanceof Error ? err.message : String(err));
     } finally {
-      setDownloading(false);
+      endDownload(track.video_id);
     }
   };
 

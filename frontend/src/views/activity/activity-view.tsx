@@ -17,7 +17,7 @@ const LIMIT_OPTIONS = [
 
 const ActivityView: React.FC = () => {
   const [limit, setLimit] = useState<string>("50");
-  const { entries, loading } = useActivity(Number(limit));
+  const { entries, loaded } = useActivity(Number(limit));
   const { tracks } = useLibrary();
   const sorted = useMemo(() => entries.toSorted((a, b) => b.started_at - a.started_at), [entries]);
 
@@ -33,9 +33,7 @@ const ActivityView: React.FC = () => {
         <Select value={limit} onChange={setLimit} options={LIMIT_OPTIONS} ariaLabel="Activity limit" />
       </header>
       <div className="flex-1 overflow-auto px-6 py-6">
-        {loading && sorted.length === 0 ? (
-          <p className="text-sm text-composer-text-muted">Loading…</p>
-        ) : sorted.length === 0 ? (
+        {!loaded ? null : sorted.length === 0 ? (
           <p className="text-sm text-composer-text-muted">No activity yet.</p>
         ) : (
           <div className="flex flex-col divide-y divide-composer-border rounded-lg border border-composer-border bg-composer-bg-dark overflow-hidden">

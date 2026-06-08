@@ -1,23 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import { RecentActivity } from "../../wailsjs/go/app/App";
-import { EventsOn, EventsOff } from "../../wailsjs/runtime/runtime";
 import type { activity } from "../../wailsjs/go/models";
+import { EventsOff, EventsOn } from "../../wailsjs/runtime/runtime";
+import { useUIStore } from "@/stores/ui-store";
 
-// -- Constants -----------------------------------------------------------------
+// -- Constants ----------------------------------------------------------------
 
 const EVENT_NAME = "activity:update";
 
-// -- Public --------------------------------------------------------------------
+// -- Public -------------------------------------------------------------------
 
 interface UseActivityResult {
   entries: activity.Entry[];
+  loaded: boolean;
   loading: boolean;
   error: Error | null;
 }
 
 export function useActivity(limit: number): UseActivityResult {
-  const [entries, setEntries] = useState<activity.Entry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const entries = useUIStore((s) => s.activityEntries);
+  const setEntries = useUIStore((s) => s.setActivityEntries);
+  const [loading, setLoading] = useState(entries === null);
   const [error, setError] = useState<Error | null>(null);
   const limitRef = useRef(limit);
   limitRef.current = limit;
@@ -41,14 +44,13 @@ export function useActivity(limit: number): UseActivityResult {
     return () => {
       cancelled = true;
     };
-  }, [limit]);
+  }, [limit, setEntries]);
 
   useEffect(() => {
     const handler = (entry: activity.Entry) => {
-      setEntries((prev) => {
-        const next = [entry, ...prev.filter((e) => e.id !== entry.id)];
-        return next.slice(0, limitRef.current);
-      });
+      const prev = useUIStore.getState().activityEntries ?? [];
+      const next = [entry, ...prev.filter((e) => e.id !== entry.id)].slice(0, limitRef.current);
+      setEntries(next);
     };
     try {
       EventsOn(EVENT_NAME, handler);
@@ -62,7 +64,12 @@ export function useActivity(limit: number): UseActivityResult {
         console.error("EventsOff failed", err);
       }
     };
-  }, []);
+  }, [setEntries]);
 
-  return { entries, loading, error };
+  return {
+    entries: entries ?? [],
+    loaded: entries !== null,
+    loading,
+    error,
+  };
 }

@@ -19,7 +19,7 @@ const STATUS_LABELS: Record<string, string> = {
 // -- View ---------------------------------------------------------------------
 
 const SettingsView: React.FC = () => {
-  const { config, loading, saveStatus, update } = useConfig();
+  const { config, loaded, saveStatus, update } = useConfig();
   const [bridgeVersion, setBridgeVersion] = useState("");
   const [ytdlpVersion, setYtdlpVersion] = useState("");
 
@@ -32,13 +32,12 @@ const SettingsView: React.FC = () => {
       .catch((err: unknown) => console.error("YtdlpVersion failed", err));
   }, []);
 
-  if (loading || !config) {
+  if (!loaded || !config) {
     return (
       <div className="flex h-full flex-col">
         <header className="border-b border-composer-border px-6 py-4">
           <h1 className="text-xl font-semibold tracking-tight text-composer-text">Settings</h1>
         </header>
-        <div className="px-6 py-6 text-sm text-composer-text-muted">Loading…</div>
       </div>
     );
   }

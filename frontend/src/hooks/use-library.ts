@@ -3,7 +3,7 @@ import { ListTracks } from "../../wailsjs/go/app/App";
 import type { library } from "../../wailsjs/go/models";
 import { useUIStore, type LibrarySort } from "@/stores/ui-store";
 
-// -- Helpers -------------------------------------------------------------------
+// -- Helpers ------------------------------------------------------------------
 
 function sortTracks(tracks: library.Track[], sort: LibrarySort): library.Track[] {
   if (sort === "recent") {
@@ -29,11 +29,12 @@ function filterTracks(tracks: library.Track[], search: string): library.Track[] 
   );
 }
 
-// -- Public --------------------------------------------------------------------
+// -- Public -------------------------------------------------------------------
 
 interface UseLibraryResult {
   tracks: library.Track[];
   reload: () => void;
+  loaded: boolean;
   loading: boolean;
   error: Error | null;
 }
@@ -41,8 +42,9 @@ interface UseLibraryResult {
 export function useLibrary(): UseLibraryResult {
   const sort = useUIStore((s) => s.librarySort);
   const search = useUIStore((s) => s.librarySearch);
-  const [raw, setRaw] = useState<library.Track[]>([]);
-  const [loading, setLoading] = useState(true);
+  const raw = useUIStore((s) => s.libraryTracks);
+  const setRaw = useUIStore((s) => s.setLibraryTracks);
+  const [loading, setLoading] = useState(raw === null);
   const [error, setError] = useState<Error | null>(null);
 
   const reload = useCallback(() => {
@@ -56,12 +58,15 @@ export function useLibrary(): UseLibraryResult {
         setError(err instanceof Error ? err : new Error(String(err)));
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [setRaw]);
 
   useEffect(() => {
-    reload();
-  }, [reload]);
+    if (raw === null) reload();
+  }, [raw, reload]);
 
-  const tracks = useMemo(() => sortTracks(filterTracks(raw, search), sort), [raw, search, sort]);
-  return { tracks, reload, loading, error };
+  const tracks = useMemo(
+    () => sortTracks(filterTracks(raw ?? [], search), sort),
+    [raw, search, sort],
+  );
+  return { tracks, reload, loaded: raw !== null, loading, error };
 }

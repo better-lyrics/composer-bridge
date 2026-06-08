@@ -3,6 +3,7 @@ import { IconCheck, IconDownload, IconExternalLink, IconLoader2 } from "@tabler/
 import { DownloadAudio, OpenInComposer } from "../../../wailsjs/go/app/App";
 import type { library } from "../../../wailsjs/go/models";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
+import { useUIStore } from "@/stores/ui-store";
 import { cn } from "@/utils/cn";
 import { formatDuration } from "@/utils/format-time";
 
@@ -49,20 +50,22 @@ const ActionButton: React.FC<{
 
 const TrackCard: React.FC<TrackCardProps> = ({ track, onSelect, onDownloaded }) => {
   const [thumbLoaded, setThumbLoaded] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const downloading = useUIStore((s) => s.activeDownloads.has(track.video_id));
+  const beginDownload = useUIStore((s) => s.beginDownload);
+  const endDownload = useUIStore((s) => s.endDownload);
   const isDownloaded = track.audio_path !== "";
 
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isDownloaded || downloading) return;
-    setDownloading(true);
+    beginDownload(track.video_id);
     try {
       const refreshed = await DownloadAudio(track.video_id);
       onDownloaded(refreshed);
     } catch (err: unknown) {
       console.error("DownloadAudio failed", err);
     } finally {
-      setDownloading(false);
+      endDownload(track.video_id);
     }
   };
 

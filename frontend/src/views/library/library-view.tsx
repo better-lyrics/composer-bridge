@@ -38,7 +38,7 @@ const EmptyState: React.FC = () => (
 // -- View ---------------------------------------------------------------------
 
 const LibraryView: React.FC = () => {
-  const { tracks, reload } = useLibrary();
+  const { tracks, reload, loaded } = useLibrary();
   const sort = useUIStore((s) => s.librarySort);
   const setSort = useUIStore((s) => s.setLibrarySort);
   const search = useUIStore((s) => s.librarySearch);
@@ -72,7 +72,7 @@ const LibraryView: React.FC = () => {
         </div>
       </header>
       <div className="flex-1 overflow-auto px-6 py-6">
-        {tracks.length === 0 ? (
+        {!loaded ? null : tracks.length === 0 ? (
           <EmptyState />
         ) : (
           <div

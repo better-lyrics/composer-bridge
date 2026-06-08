@@ -32,6 +32,8 @@ beforeEach(() => {
     selectedVideoId: null,
     librarySort: "recent",
     librarySearch: "",
+    libraryTracks: null,
+    activeDownloads: new Set<string>(),
   });
   bindings = setupWailsMock();
   Object.defineProperty(navigator, "clipboard", {
