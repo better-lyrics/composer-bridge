@@ -53,16 +53,16 @@ describe("LibraryView", () => {
     });
   });
 
-  it("empty state CTA copies the import URL to clipboard", async () => {
+  it("empty state CTA opens Composer via the Wails runtime", async () => {
     render(<LibraryView />);
     await waitFor(() =>
       expect(screen.getByText(/No tracks yet/i)).toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByRole("button", { name: /Copy/i }));
+    const runtime = (window as unknown as { runtime: { BrowserOpenURL: ReturnType<typeof vi.fn> } })
+      .runtime;
+    fireEvent.click(screen.getByRole("button", { name: /Open Composer/i }));
     await waitFor(() =>
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        "http://localhost:7777/import",
-      ),
+      expect(runtime.BrowserOpenURL).toHaveBeenCalledWith("https://composer.boidu.dev"),
     );
   });
 
