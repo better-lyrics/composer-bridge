@@ -40,24 +40,22 @@ const NetworkingSection: React.FC<NetworkingSectionProps> = ({ config, update })
       </SettingRow>
       <SettingRow
         label="Allowed Composer origins"
-        description="One origin per line. Cross-origin requests outside this list are blocked."
+        description="Comma-separated. Cross-origin requests outside this list are blocked."
       >
         <TextInput
-          multiline
-          rows={4}
           mono
-          value={config.allowed_origins.join("\n")}
+          value={config.allowed_origins.join(", ")}
           onChange={(v) =>
             update(
               "allowed_origins",
               v
-                .split("\n")
+                .split(",")
                 .map((s) => s.trim())
                 .filter((s) => s.length > 0),
             )
           }
           ariaLabel="Allowed Composer origins"
-          className="w-56"
+          className="w-80"
         />
       </SettingRow>
     </div>

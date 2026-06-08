@@ -38,7 +38,11 @@ func TestDefaults_ExposesDocumentedValues(t *testing.T) {
 		"https://composer.boidu.dev",
 		"https://composer-staging.boidu.dev",
 		"http://localhost:5173",
+		"http://localhost:5174",
+		"http://localhost:5175",
 		"http://localhost:4173",
+		"http://127.0.0.1:5173",
+		"http://127.0.0.1:5174",
 	}
 	if !reflect.DeepEqual(d.AllowedOrigins, wantOrigins) {
 		t.Errorf("AllowedOrigins: got %#v, want %#v", d.AllowedOrigins, wantOrigins)
