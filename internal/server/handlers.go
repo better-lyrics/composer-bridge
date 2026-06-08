@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/boidushya/composer-bridge/internal/activity"
+	"github.com/boidushya/composer-bridge/internal/events"
 	"github.com/boidushya/composer-bridge/internal/library"
 	"github.com/boidushya/composer-bridge/internal/ytdlp"
 )
@@ -24,13 +25,20 @@ const (
 	thumbnailFetchTTL = 30 * time.Second
 )
 
-// Handlers wires the bridge HTTP API to the library, activity log, and yt-dlp. All fields are required.
+// Handlers wires the bridge HTTP API to the library, activity log, and yt-dlp.
+// Library, Activity, YtdlpPath, ThumbDir, and Bridge are required. Emitter and
+// EmitterCtx are optional: when both are set, every successful activity transition
+// (start, ok, error) publishes an activity:update event so the Wails frontend can
+// keep its live feed in sync without polling. A nil Emitter leaves handlers
+// emitting nothing, which is what tests want by default.
 type Handlers struct {
-	Library   *library.Library
-	Activity  *activity.Log
-	YtdlpPath string
-	ThumbDir  string
-	Bridge    string
+	Library    *library.Library
+	Activity   *activity.Log
+	YtdlpPath  string
+	ThumbDir   string
+	Bridge     string
+	Emitter    events.Emitter
+	EmitterCtx context.Context
 }
 
 // Router returns the bridge's HTTP mux. Wrap with WithCORS at the call site for browser access.
@@ -195,6 +203,7 @@ func (h *Handlers) startActivity(kind activity.Kind, videoID string) int64 {
 		slog.Warn("activity start failed", "kind", kind, "videoID", videoID, "err", err)
 		return 0
 	}
+	h.emitActivity(id)
 	return id
 }
 
@@ -204,6 +213,30 @@ func (h *Handlers) endActivity(id int64, st activity.Status, msg string) {
 	}
 	if err := h.Activity.End(id, st, msg); err != nil {
 		slog.Warn("activity end failed", "id", id, "status", st, "err", err)
+		return
+	}
+	h.emitActivity(id)
+}
+
+// emitActivity publishes the latest snapshot of the activity row to the
+// frontend. Fails silently when no Emitter is wired (tests, headless boot).
+// Looks the row up by id rather than constructing it inline so a single source
+// of truth (the SQLite row) drives both the Activity view's initial fetch and
+// its live update stream: any drift would show up as a UI inconsistency.
+func (h *Handlers) emitActivity(id int64) {
+	if h.Emitter == nil || id == 0 {
+		return
+	}
+	entries, err := h.Activity.Recent(50)
+	if err != nil {
+		slog.Warn("emit activity recent failed", "id", id, "err", err)
+		return
+	}
+	for _, e := range entries {
+		if e.ID == id {
+			h.Emitter.Emit(h.EmitterCtx, "activity:update", e)
+			return
+		}
 	}
 }
 

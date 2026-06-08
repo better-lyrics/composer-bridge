@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"image"
 	"image/color"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/boidushya/composer-bridge/internal/activity"
@@ -660,6 +662,77 @@ func TestAudio_YtdlpFailsAfterFirstByteClosesWithoutJSONError(t *testing.T) {
 	}
 	if !strings.Contains(entry.Message, "RgKAFK5djSk") {
 		t.Errorf("activity message: got %q, want contains videoID", entry.Message)
+	}
+}
+
+// -- Emitter integration -------------------------------------------------------
+
+type recordedEmission struct {
+	name string
+	args []any
+}
+
+type recordingEmitter struct {
+	mu       sync.Mutex
+	captured []recordedEmission
+}
+
+func (r *recordingEmitter) Emit(_ context.Context, name string, args ...any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.captured = append(r.captured, recordedEmission{name: name, args: args})
+}
+
+func (r *recordingEmitter) snapshot() []recordedEmission {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]recordedEmission, len(r.captured))
+	copy(out, r.captured)
+	return out
+}
+
+func TestAudio_EmitterPublishesStartAndEnd(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'hello world'`))
+	rec := &recordingEmitter{}
+	env.handlers.Emitter = rec
+	env.handlers.EmitterCtx = context.Background()
+	srv := httptest.NewServer(env.handlers.Router())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	got := rec.snapshot()
+	if len(got) != 2 {
+		t.Fatalf("emissions: got %d, want 2 (start + ok)", len(got))
+	}
+	for i, em := range got {
+		if em.name != "activity:update" {
+			t.Errorf("emission[%d].name: got %q, want activity:update", i, em.name)
+		}
+		if len(em.args) != 1 {
+			t.Fatalf("emission[%d].args: got %d, want 1", i, len(em.args))
+		}
+		entry, ok := em.args[0].(activity.Entry)
+		if !ok {
+			t.Fatalf("emission[%d].args[0]: got %T, want activity.Entry", i, em.args[0])
+		}
+		if entry.VideoID != "RgKAFK5djSk" {
+			t.Errorf("emission[%d].videoID: got %q, want RgKAFK5djSk", i, entry.VideoID)
+		}
+		if entry.Kind != activity.KindAudioDownload {
+			t.Errorf("emission[%d].kind: got %q, want %q", i, entry.Kind, activity.KindAudioDownload)
+		}
+	}
+	if start, _ := got[0].args[0].(activity.Entry); start.Status != activity.StatusRunning {
+		t.Errorf("first emission status: got %q, want running", start.Status)
+	}
+	if end, _ := got[1].args[0].(activity.Entry); end.Status != activity.StatusOK {
+		t.Errorf("second emission status: got %q, want ok", end.Status)
 	}
 }
 

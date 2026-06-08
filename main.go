@@ -13,6 +13,7 @@ import (
 	"github.com/boidushya/composer-bridge/internal/activity"
 	"github.com/boidushya/composer-bridge/internal/app"
 	"github.com/boidushya/composer-bridge/internal/config"
+	"github.com/boidushya/composer-bridge/internal/events"
 	"github.com/boidushya/composer-bridge/internal/library"
 	"github.com/boidushya/composer-bridge/internal/server"
 	"github.com/boidushya/composer-bridge/internal/ytdlp"
@@ -20,6 +21,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed all:frontend/dist
@@ -67,6 +69,12 @@ func main() {
 		YtdlpPath: ytdlpPath,
 		ThumbDir:  filepath.Join(dataDir, "thumbs"),
 		Bridge:    Version,
+		Emitter: events.EmitterFunc(func(ctx context.Context, name string, args ...any) {
+			if ctx == nil {
+				return
+			}
+			wailsRuntime.EventsEmit(ctx, name, args...)
+		}),
 	}
 	httpSrv := &http.Server{
 		Handler:           server.WithCORS(handlers.Router(), cfg.AllowedOrigins),
@@ -87,9 +95,12 @@ func main() {
 		Width:       1024,
 		Height:      700,
 		AssetServer: &assetserver.Options{Assets: assets},
-		OnStartup:   a.Startup,
-		OnShutdown:  a.Shutdown,
-		Bind:        []any{a},
+		OnStartup: func(ctx context.Context) {
+			a.Startup(ctx)
+			handlers.EmitterCtx = ctx
+		},
+		OnShutdown: a.Shutdown,
+		Bind:       []any{a},
 	})
 	if err != nil {
 		fatal("wails: %v", err)

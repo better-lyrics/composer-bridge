@@ -1,10 +1,24 @@
-import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, beforeEach } from "vitest";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { App } from "@/App";
 import { useUIStore } from "@/stores/ui-store";
+import { setupWailsMock, resetWailsMock } from "@/test/wails-mock";
 
 describe("App shell", () => {
-  beforeEach(() => useUIStore.setState({ view: "library" }));
+  beforeEach(() => {
+    useUIStore.setState({
+      view: "library",
+      selectedVideoId: null,
+      librarySearch: "",
+      librarySort: "recent",
+    });
+    setupWailsMock();
+  });
+
+  afterEach(() => {
+    cleanup();
+    resetWailsMock();
+  });
 
   it("renders all three sidebar tabs", () => {
     render(<App />);
@@ -18,12 +32,16 @@ describe("App shell", () => {
     expect(screen.getByRole("heading", { name: /library/i })).toBeInTheDocument();
   });
 
-  it("switches view on tab click", () => {
+  it("switches view on tab click", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: /activity/i }));
-    expect(screen.getByRole("heading", { name: /activity/i })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /activity/i })).toBeInTheDocument(),
+    );
     fireEvent.click(screen.getByRole("button", { name: /settings/i }));
-    expect(screen.getByRole("heading", { name: /settings/i })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /settings/i })).toBeInTheDocument(),
+    );
   });
 
   it("active tab highlights with bl-red", () => {
