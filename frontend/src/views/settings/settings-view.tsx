@@ -4,6 +4,7 @@ import { useConfig } from "@/hooks/use-config";
 import { BehaviorSection } from "@/views/settings/sections/behavior-section";
 import { DiagnosticsSection } from "@/views/settings/sections/diagnostics-section";
 import { NetworkingSection } from "@/views/settings/sections/networking-section";
+import { ServerSection } from "@/views/settings/sections/server-section";
 import { StorageSection } from "@/views/settings/sections/storage-section";
 import { YtdlpSection } from "@/views/settings/sections/ytdlp-section";
 
@@ -59,6 +60,7 @@ const SettingsView: React.FC = () => {
       </header>
       <div className="flex-1 overflow-auto px-6 py-6">
         <div className="flex max-w-3xl flex-col gap-8">
+          <ServerSection config={config} />
           <NetworkingSection config={config} update={update} />
           <YtdlpSection
             config={config}
