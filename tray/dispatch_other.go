@@ -7,3 +7,8 @@ package tray
 func dispatchStart(fn func()) {
 	fn()
 }
+
+// dispatchMain on non-Darwin platforms is a direct call for the same reason.
+func dispatchMain(fn func()) {
+	fn()
+}

@@ -169,7 +169,15 @@ func main() {
 			if e.Kind != activity.KindAudioDownload {
 				continue
 			}
-			out = append(out, tray.RecentEntry{VideoID: e.VideoID})
+			entry := tray.RecentEntry{VideoID: e.VideoID}
+			if track, err := lib.GetTrack(e.VideoID); err == nil && track != nil {
+				title := track.Title
+				if track.Artist != "" && title != "" {
+					title = track.Artist + " - " + title
+				}
+				entry.Title = title
+			}
+			out = append(out, entry)
 		}
 		return out
 	})

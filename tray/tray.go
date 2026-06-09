@@ -224,8 +224,14 @@ func (c *Controller) onReady() {
 	if holder := c.stateHolder(); holder != nil {
 		applyState(mState, mServer, holder.Snapshot())
 		unsub := holder.OnChange(func(s bridgestate.State) {
-			applyState(mState, mServer, s)
-			applyTrayIcon(s, isMac)
+			// Menu+icon mutations touch AppKit. The OnChange callback may
+			// fire from a non-main goroutine (e.g. a tray menu click that
+			// triggered StartServer); dispatch the mutation to the main
+			// queue so macOS does not crash on cross-thread AppKit access.
+			dispatchMain(func() {
+				applyState(mState, mServer, s)
+				applyTrayIcon(s, isMac)
+			})
 		})
 		c.mu.Lock()
 		c.unsubState = unsub
