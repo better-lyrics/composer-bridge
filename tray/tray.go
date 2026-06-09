@@ -216,22 +216,28 @@ func (c *Controller) onReady() {
 	mQuit := systray.AddMenuItem("Quit", "Stop the bridge and quit")
 	applyItemIcon(mQuit, icons.MenuX)
 
-	mShow.Click(c.showWindow)
-	mSettings.Click(c.showWindow)
-	mServer.Click(func() { c.toggleServer(mServer) })
-	mQuit.Click(c.quitApp)
+	// AppKit invokes click handlers on the main thread inside its menu
+	// tracking loop. Any work that touches systray's AppKit-backed APIs
+	// (SetTitle, SetIcon) must run off the main thread, so each handler
+	// hands off to a fresh goroutine.
+	mShow.Click(func() { go c.showWindow() })
+	mSettings.Click(func() { go c.showWindow() })
+	mServer.Click(func() { go c.toggleServer(mServer) })
+	mQuit.Click(func() { go c.quitApp() })
 
 	if holder := c.stateHolder(); holder != nil {
 		applyState(mState, mServer, holder.Snapshot())
 		unsub := holder.OnChange(func(s bridgestate.State) {
-			// Menu+icon mutations touch AppKit. The OnChange callback may
-			// fire from a non-main goroutine (e.g. a tray menu click that
-			// triggered StartServer); dispatch the mutation to the main
-			// queue so macOS does not crash on cross-thread AppKit access.
-			dispatchMain(func() {
+			// systray's SetTitle/Check/SetTemplateIcon internally call
+			// performSelectorOnMainThread:waitUntilDone:YES. If this
+			// callback fires from the main thread (e.g. inside a click
+			// handler) the main thread tries to dispatch to itself and
+			// deadlocks/crashes during AppKit menu tracking. Run the
+			// mutation in a goroutine so we are not on main.
+			go func() {
 				applyState(mState, mServer, s)
 				applyTrayIcon(s, isMac)
-			})
+			}()
 		})
 		c.mu.Lock()
 		c.unsubState = unsub
@@ -241,7 +247,7 @@ func (c *Controller) onReady() {
 	// energye/systray does not auto-attach the NSMenu to the status item.
 	// Wire left-click to restore the window and right-click to open the menu
 	// (the library's ShowMenu only works inside the OnRClick callback on macOS).
-	systray.SetOnClick(func(_ systray.IMenu) { c.showWindow() })
+	systray.SetOnClick(func(_ systray.IMenu) { go c.showWindow() })
 	systray.SetOnRClick(func(m systray.IMenu) { _ = m.ShowMenu() })
 }
 
