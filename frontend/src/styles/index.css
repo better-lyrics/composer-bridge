@@ -76,8 +76,39 @@ body,
   color: #fff;
 }
 
+:focus,
 :focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+button,
+[role="button"],
+[role="switch"],
+input,
+select,
+textarea,
+a {
   outline: none;
+}
+
+button:focus,
+button:focus-visible,
+[role="button"]:focus,
+[role="button"]:focus-visible,
+[role="switch"]:focus,
+[role="switch"]:focus-visible,
+input:focus,
+input:focus-visible,
+select:focus,
+select:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+a:focus,
+a:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: inherit;
 }
 
 @layer base {
