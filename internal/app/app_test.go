@@ -746,7 +746,7 @@ func TestShutdown_UnsubscribesStatusEmitter(t *testing.T) {
 
 func TestApp_VerifyCookies_ReturnsErrorWhenNoFile(t *testing.T) {
 	a, _, _, _ := newTestApp(t)
-	_, err := a.VerifyCookies(context.Background())
+	_, err := a.VerifyCookies()
 	if err == nil {
 		t.Fatalf("VerifyCookies with no file: want error")
 	}

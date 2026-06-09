@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { IconChevronRight } from "@tabler/icons-react";
 import {
   CookiesState,
   RemoveCookies,
@@ -100,9 +101,12 @@ const UploadArea: React.FC<UploadAreaProps> = ({
           }
         }}
       />
-      {uploadError && <p className="mt-2 text-xs text-composer-error-text">{uploadError}</p>}
-      <details className="mt-3">
-        <summary className="cursor-pointer text-xs text-composer-text-muted hover:text-composer-text">
+      {uploadError && (
+        <p className="mt-2 text-xs text-composer-error-text select-text">{uploadError}</p>
+      )}
+      <details className="group mt-3">
+        <summary className="flex cursor-pointer list-none items-center gap-1 text-xs text-composer-text-muted select-none hover:text-composer-text [&::-webkit-details-marker]:hidden">
+          <IconChevronRight size={12} className="transition-transform group-open:rotate-90" />
           Or paste contents
         </summary>
         <div className="mt-2 flex flex-col gap-2">
@@ -210,7 +214,7 @@ const CookiesSection: React.FC = () => {
   const handleVerify = async () => {
     setBusy(true);
     try {
-      const result = await VerifyCookies(undefined);
+      const result = await VerifyCookies();
       setVerification(result);
     } catch (err: unknown) {
       setVerification({
@@ -312,7 +316,7 @@ const CookiesSection: React.FC = () => {
           </SettingRow>
         )}
         {verification && (
-          <p className={`py-2 text-xs ${verifyToneClass(verification)}`}>
+          <p className={`py-2 text-xs select-text ${verifyToneClass(verification)}`}>
             {verification.detail || (verification.authenticated ? "Cookies look good." : "")}
             {verification.rotated && (
               <span className="ml-1 text-composer-text-muted">

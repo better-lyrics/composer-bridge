@@ -1,7 +1,7 @@
 package ytdlp
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -92,10 +92,13 @@ type VerifyResult struct {
 const verifyTestURL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
 // VerifyCookies probes yt-dlp with the given cookies file against a stable
-// YouTube URL using --verbose --dump-json --simulate, then parses stderr for
-// the auth/loaded/rotated markers. Returns an error only when the probe
-// cannot be attempted (missing file). A probe that ran but reported "JSON
-// rejected" or "anonymous fallback" returns a non-nil VerifyResult with the
+// YouTube URL using --verbose, then watches stderr line-by-line for the
+// auth/loaded/rotated markers. As soon as one of the decisive markers
+// appears, the process is killed; this avoids waiting for the full ~40-80s
+// of YouTube extraction (JS challenge, format probing, etc.) when we
+// already know the answer. Returns an error only when the probe cannot be
+// attempted (missing file). A probe that ran but reported "JSON rejected"
+// or "anonymous fallback" returns a non-nil VerifyResult with the
 // appropriate flags set, not an error.
 func VerifyCookies(ctx context.Context, ytdlpPath, cookiesPath string) (VerifyResult, error) {
 	if _, err := os.Stat(cookiesPath); err != nil {
@@ -103,8 +106,8 @@ func VerifyCookies(ctx context.Context, ytdlpPath, cookiesPath string) (VerifyRe
 	}
 	args := []string{
 		"--verbose",
-		"--dump-json",
-		"--simulate",
+		"--skip-download",
+		"--print", "%(id)s",
 		"--no-warnings",
 		"--no-playlist",
 		"--cookies", cookiesPath,
@@ -112,40 +115,71 @@ func VerifyCookies(ctx context.Context, ytdlpPath, cookiesPath string) (VerifyRe
 	}
 	cmd := exec.CommandContext(ctx, ytdlpPath, args...)
 	cmd.WaitDelay = killWaitDelay
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
 	cmd.Stdout = io.Discard
-	runErr := cmd.Run()
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return VerifyResult{}, fmt.Errorf("stderr pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return VerifyResult{}, fmt.Errorf("start yt-dlp: %w", err)
+	}
+
+	var stderr strings.Builder
+	authenticated := false
+	rotated := false
+	scanner := bufio.NewScanner(stderrPipe)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		stderr.WriteString(line)
+		stderr.WriteByte('\n')
+		switch {
+		case strings.Contains(line, "no longer valid"),
+			strings.Contains(line, "have likely been rotated"):
+			rotated = true
+		case strings.Contains(line, "Found YouTube account cookies"):
+			authenticated = true
+		}
+		if rotated || authenticated {
+			_ = cmd.Process.Kill()
+			break
+		}
+	}
+	_, _ = io.Copy(io.Discard, stderrPipe)
+	waitErr := cmd.Wait()
 	se := stderr.String()
 
-	if strings.Contains(se, "Cookies file must be Netscape formatted") {
+	if rotated {
 		return VerifyResult{
-			Loaded:        false,
-			Authenticated: false,
-			Detail:        "yt-dlp rejected the file: cookies must be in Netscape (cookies.txt) format. JSON exports are not supported. Use \"Get cookies.txt LOCALLY\" or a similar Netscape export.",
+			Loaded: true, Rotated: true,
+			Detail: "The cookies have expired or been rotated. Export a fresh cookies.txt from a signed-in browser session.",
 		}, nil
 	}
-	if runErr != nil {
+	if authenticated {
 		return VerifyResult{
-			Loaded:        false,
-			Authenticated: false,
-			Detail:        fmt.Sprintf("yt-dlp probe failed: %v (stderr: %s)", runErr, stderrTail(&stderr)),
+			Loaded: true, Authenticated: true,
+			Detail: "Cookies loaded and YouTube recognised an authenticated session.",
 		}, nil
 	}
+	// Process exited or was killed by ctx without any decisive marker. Treat a
+	// clean exit as anonymous fallback; treat a non-zero exit as a probe
+	// failure with the captured stderr tail for the user to copy.
+	if waitErr != nil && ctx.Err() == nil {
+		return VerifyResult{
+			Detail: fmt.Sprintf("yt-dlp probe failed: %v (stderr: %s)", waitErr, stderrTailFromString(se)),
+		}, nil
+	}
+	return VerifyResult{
+		Loaded: true,
+		Detail: "Cookies loaded but YouTube treated the request as anonymous. The exported file may have been missing the LOGIN_INFO / SAPISID cookies.",
+	}, nil
+}
 
-	res := VerifyResult{Loaded: true}
-	if strings.Contains(se, "Found YouTube account cookies") {
-		res.Authenticated = true
-		res.Detail = "Cookies loaded and YouTube recognised an authenticated session."
-	} else {
-		res.Detail = "Cookies loaded but YouTube treated the request as anonymous. The exported file may have been missing the LOGIN_INFO / SAPISID cookies."
+func stderrTailFromString(s string) string {
+	if len(s) <= stderrTailLimit {
+		return s
 	}
-	if strings.Contains(se, "no longer valid") || strings.Contains(se, "have likely been rotated") {
-		res.Rotated = true
-		res.Authenticated = false
-		res.Detail = "The cookies have expired or been rotated. Export a fresh cookies.txt from a signed-in browser session."
-	}
-	return res, nil
+	return s[len(s)-stderrTailLimit:]
 }
 
 // looksLikeJSON returns true when content's first non-whitespace character is

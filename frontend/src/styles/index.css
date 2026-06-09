@@ -71,6 +71,44 @@ body,
   overscroll-behavior: none;
 }
 
+body {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+input,
+textarea,
+select,
+[contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.select-text,
+.select-text * {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+button,
+[role="button"],
+[role="switch"],
+[role="tab"],
+[role="menuitem"],
+a,
+summary,
+label {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
 ::selection {
   background-color: rgba(129, 140, 248, 0.4);
   color: #fff;

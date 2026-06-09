@@ -470,15 +470,22 @@ func (a *App) SetCookiesEnabled(enabled bool) error {
 // VerifyCookies runs a yt-dlp probe against a stable YouTube URL using the
 // uploaded cookies file and reports whether the cookies loaded and whether
 // YouTube recognised an authenticated session. Returns an error when no
-// cookies file is present on disk.
-func (a *App) VerifyCookies(ctx context.Context) (ytdlp.VerifyResult, error) {
+// cookies file is present on disk. Does NOT take ctx as a parameter: Wails's
+// JS binding generator would pass JS undefined into the slot and the
+// resulting nil context would panic context.WithTimeout. Use the runtime
+// context if available, else context.Background.
+func (a *App) VerifyCookies() (ytdlp.VerifyResult, error) {
 	if !ytdlp.HasCookies(a.dataDir) {
 		return ytdlp.VerifyResult{}, errors.New("no cookies file uploaded")
 	}
 	a.mu.RLock()
 	ytdlpPath := a.ytdlpPath
+	parent := a.ctx
 	a.mu.RUnlock()
-	probeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	if parent == nil {
+		parent = context.Background()
+	}
+	probeCtx, cancel := context.WithTimeout(parent, 120*time.Second)
 	defer cancel()
 	return ytdlp.VerifyCookies(probeCtx, ytdlpPath, ytdlp.CookiesPath(a.dataDir))
 }
