@@ -33,9 +33,10 @@ type State struct {
 	LastError       string         `json:"lastError"`
 }
 
-// Holder guards a State with an RWMutex so reads and writes can happen
-// from multiple goroutines safely.
-// Always construct via NewHolder; the zero value is not safe to use.
+// Holder guards a State with an RWMutex and a separate Mutex for the
+// subscriber registry, so reads, writes, and subscription mutations can
+// happen from multiple goroutines safely.
+// Always construct via NewHolder so the default state is initialised.
 type Holder struct {
 	mu      sync.RWMutex
 	state   State
@@ -100,6 +101,9 @@ func (h *Holder) EndDownload(errMsg string) {
 
 // OnChange registers fn to receive every subsequent state snapshot.
 // The returned func unsubscribes; safe to call from the callback.
+// Snapshots may be delivered out of order under concurrent mutations:
+// subscribers should treat each callback as the latest-known state, not
+// as a strict event stream.
 func (h *Holder) OnChange(fn func(State)) func() {
 	h.subsMu.Lock()
 	if h.subs == nil {
