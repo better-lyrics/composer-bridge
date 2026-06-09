@@ -14,6 +14,8 @@ import (
 	"github.com/better-lyrics/composer-bridge/internal/activity"
 	"github.com/better-lyrics/composer-bridge/internal/app"
 	"github.com/better-lyrics/composer-bridge/internal/autostart"
+	"github.com/better-lyrics/composer-bridge/internal/bridge"
+	"github.com/better-lyrics/composer-bridge/internal/bridgestate"
 	"github.com/better-lyrics/composer-bridge/internal/config"
 	"github.com/better-lyrics/composer-bridge/internal/events"
 	"github.com/better-lyrics/composer-bridge/internal/library"
@@ -69,11 +71,6 @@ func main() {
 	}
 	defer act.Close()
 
-	port, err := server.SelectPort(cfg.ListenPort, dataDir)
-	if err != nil {
-		fatal("port: %v", err)
-	}
-
 	// Cache the yt-dlp version once at startup instead of execing the binary
 	// on every /health and every Settings poll. The initial probe runs in a
 	// goroutine so a slow / hanging exec doesn't block the HTTP server from
@@ -88,6 +85,8 @@ func main() {
 	go refreshYtdlpVersion()
 	getYtdlpVersion := func() string { return *ytdlpVersionCache.Load() }
 
+	holder := bridgestate.NewHolder()
+
 	handlers := &server.Handlers{
 		Library:      lib,
 		Activity:     act,
@@ -96,6 +95,7 @@ func main() {
 		ThumbDir:     filepath.Join(dataDir, "thumbs"),
 		Bridge:       Version,
 		AudioFormat:  cfg.AudioFormat,
+		State:        holder,
 		Emitter: events.EmitterFunc(func(ctx context.Context, name string, args ...any) {
 			if ctx == nil {
 				return
@@ -103,17 +103,29 @@ func main() {
 			wailsRuntime.EventsEmit(ctx, name, args...)
 		}),
 	}
-	httpSrv := &http.Server{
-		Handler:           server.WithCORS(handlers.Router(), cfg.AllowedOrigins),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      10 * time.Minute,
-		IdleTimeout:       60 * time.Second,
+
+	br := bridge.New(holder, func() *http.Server {
+		return &http.Server{
+			Handler:           server.WithCORS(handlers.Router(), cfg.AllowedOrigins),
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			WriteTimeout:      10 * time.Minute,
+			IdleTimeout:       60 * time.Second,
+		}
+	})
+
+	if cfg.ServerEnabled {
+		startErr := br.Start(cfg.ListenPort)
+		if startErr != nil && cfg.UseRandomIfBusy {
+			slog.Warn("preferred port unavailable, retrying ephemeral", "preferred", cfg.ListenPort, "err", startErr)
+			startErr = br.Start(0)
+		}
+		if startErr != nil {
+			slog.Error("bridge start failed", "err", startErr)
+		} else {
+			slog.Info("bridge listening", "url", fmt.Sprintf("http://localhost:%d", br.Port()))
+		}
 	}
-	go func() {
-		slog.Info("bridge listening", "url", fmt.Sprintf("http://localhost:%d", port.Port))
-		_ = httpSrv.Serve(port.Listener)
-	}()
 
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
@@ -124,6 +136,14 @@ func main() {
 
 	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
 	a.SetYtdlpVersionFn(getYtdlpVersion)
+	a.SetBridgeState(holder)
+	a.SetBridge(br)
+	a.SetStatusEmitter(func(ctx context.Context, name string, data any) {
+		if ctx == nil {
+			return
+		}
+		wailsRuntime.EventsEmit(ctx, name, data)
+	})
 
 	if exec, err := os.Executable(); err == nil {
 		if err := autostart.Refresh(exec); err != nil {
@@ -135,13 +155,13 @@ func main() {
 	trayCtrl.Register()
 
 	err = wails.Run(&options.App{
-		Title:             "Composer Bridge",
-		Width:             1024,
-		Height:            700,
-		MinWidth:          800,
-		MinHeight:         540,
-		AssetServer:       &assetserver.Options{Assets: assets},
-		BackgroundColour:  &options.RGBA{R: 0x28, G: 0x29, B: 0x2c, A: 255},
+		Title:            "Composer Bridge",
+		Width:            1024,
+		Height:           700,
+		MinWidth:         800,
+		MinHeight:        540,
+		AssetServer:      &assetserver.Options{Assets: assets},
+		BackgroundColour: &options.RGBA{R: 0x28, G: 0x29, B: 0x2c, A: 255},
 		// StartHidden suppresses Wails's default makeKeyAndOrderFront so the
 		// brief ~50ms during which Wails's own AppDelegate forces the policy
 		// to Regular doesn't produce a Dock-icon flash. OnStartup then calls
@@ -175,6 +195,9 @@ func main() {
 		},
 		OnBeforeClose: a.OnBeforeClose,
 		OnShutdown: func(ctx context.Context) {
+			if err := br.Stop(); err != nil {
+				slog.Warn("bridge stop failed", "err", err)
+			}
 			trayCtrl.Stop()
 			a.Shutdown(ctx)
 		},
