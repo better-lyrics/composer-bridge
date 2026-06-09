@@ -44,8 +44,9 @@ func FormatExtension(format string) string {
 
 // DownloadToFile runs yt-dlp to fetch audio for videoID using the chosen format
 // and writes it to destPath. Returns the resulting file size in bytes. Honors
-// ctx cancellation and rejects malformed video IDs before forking.
-func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath string) (int64, error) {
+// ctx cancellation and rejects malformed video IDs before forking. An empty
+// cookiesPath omits the --cookies flag.
+func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath, cookiesPath string) (int64, error) {
 	if err := validateVideoID(videoID); err != nil {
 		return 0, err
 	}
@@ -56,8 +57,11 @@ func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath st
 		"--no-playlist",
 		"--force-overwrites",
 		"--extractor-args", "youtube:player_client=web,web_music",
-		videoURL(videoID),
 	}
+	if cookiesPath != "" {
+		args = append(args, "--cookies", cookiesPath)
+	}
+	args = append(args, videoURL(videoID))
 	if format == "mp3" {
 		args = append([]string{"--extract-audio", "--audio-format", "mp3"}, args...)
 	}

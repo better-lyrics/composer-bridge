@@ -130,7 +130,7 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	tw := &trackingWriter{rw: w}
 	streamCtx, cancel := context.WithTimeout(r.Context(), audioStreamTTL)
 	defer cancel()
-	err := ytdlp.StreamAudio(streamCtx, h.YtdlpPath, videoID, format, tw)
+	err := ytdlp.StreamAudio(streamCtx, h.YtdlpPath, videoID, format, "", tw)
 	if err == nil {
 		h.endActivity(actID, activity.StatusOK, "")
 		if h.State != nil {
@@ -158,7 +158,7 @@ func (h *Handlers) resolveTrackForAudio(ctx context.Context, videoID string) *li
 	}
 	infoCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	info, err := ytdlp.FetchInfo(infoCtx, h.YtdlpPath, videoID)
+	info, err := ytdlp.FetchInfo(infoCtx, h.YtdlpPath, videoID, "")
 	if err != nil {
 		slog.Warn("audio: info fetch failed", "videoID", videoID, "err", err)
 		return nil
@@ -196,7 +196,7 @@ func (h *Handlers) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actID := h.startActivity(activity.KindImport, body.VideoID)
-	info, err := ytdlp.FetchInfo(r.Context(), h.YtdlpPath, body.VideoID)
+	info, err := ytdlp.FetchInfo(r.Context(), h.YtdlpPath, body.VideoID, "")
 	if err != nil {
 		h.endActivity(actID, activity.StatusError, fmt.Sprintf("%s: %v", body.VideoID, err))
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("yt-dlp info failed for %s", body.VideoID))

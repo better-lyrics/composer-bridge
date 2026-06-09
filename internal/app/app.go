@@ -548,7 +548,7 @@ func (a *App) DownloadAudio(videoID string) (*library.Track, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	actID := a.startActivity(activity.KindAudioDownload, videoID)
-	size, err := ytdlp.DownloadToFile(ctx, ytdlpPath, videoID, format, dest)
+	size, err := ytdlp.DownloadToFile(ctx, ytdlpPath, videoID, format, dest, "")
 	if err != nil {
 		a.endActivity(actID, activity.StatusError, err.Error())
 		return nil, err

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,7 +58,7 @@ func echoFixtureScript(t *testing.T, fixture string) string {
 
 func TestFetchInfo_MusicFixture(t *testing.T) {
 	script := echoFixtureScript(t, "music_frank_sinatra.json")
-	info, err := FetchInfo(context.Background(), script, "ZEcqHA7dbwM")
+	info, err := FetchInfo(context.Background(), script, "ZEcqHA7dbwM", "")
 	if err != nil {
 		t.Fatalf("FetchInfo: %v", err)
 	}
@@ -71,7 +72,7 @@ func TestFetchInfo_MusicFixture(t *testing.T) {
 
 func TestFetchInfo_RegularVideoFixture(t *testing.T) {
 	script := echoFixtureScript(t, "video_me_at_zoo.json")
-	info, err := FetchInfo(context.Background(), script, "jNQXAC9IVRw")
+	info, err := FetchInfo(context.Background(), script, "jNQXAC9IVRw", "")
 	if err != nil {
 		t.Fatalf("FetchInfo: %v", err)
 	}
@@ -83,7 +84,7 @@ func TestFetchInfo_RegularVideoFixture(t *testing.T) {
 func TestStreamAudio_CopiesStdoutToWriter(t *testing.T) {
 	script := writeFakeYtdlp(t, `printf 'hello world'`)
 	var buf bytes.Buffer
-	if err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", &buf); err != nil {
+	if err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", "", &buf); err != nil {
 		t.Fatalf("StreamAudio: %v", err)
 	}
 	if buf.String() != "hello world" {
@@ -95,7 +96,7 @@ func TestStreamAudio_LargePayload(t *testing.T) {
 	// Emit exactly 1 MiB by repeating a 1 KiB block 1024 times.
 	script := writeFakeYtdlp(t, `head -c 1048576 /dev/zero`)
 	var buf bytes.Buffer
-	if err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", &buf); err != nil {
+	if err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", "", &buf); err != nil {
 		t.Fatalf("StreamAudio: %v", err)
 	}
 	if buf.Len() != 1<<20 {
@@ -113,7 +114,7 @@ func TestFetchInfo_RejectsInvalidVideoIDsWithoutForking(t *testing.T) {
 	}
 	for _, id := range cases {
 		t.Run(id, func(t *testing.T) {
-			_, err := FetchInfo(context.Background(), "/nonexistent/binary/path", id)
+			_, err := FetchInfo(context.Background(), "/nonexistent/binary/path", id, "")
 			if err == nil {
 				t.Fatalf("FetchInfo(%q): got nil error", id)
 			}
@@ -130,7 +131,7 @@ func TestFetchInfo_RejectsInvalidVideoIDsWithoutForking(t *testing.T) {
 
 func TestStreamAudio_RejectsInvalidVideoIDsWithoutForking(t *testing.T) {
 	var buf bytes.Buffer
-	err := StreamAudio(context.Background(), "/nonexistent/binary/path", "bad", "opus", &buf)
+	err := StreamAudio(context.Background(), "/nonexistent/binary/path", "bad", "opus", "", &buf)
 	if err == nil {
 		t.Fatal("StreamAudio: got nil error")
 	}
@@ -144,7 +145,7 @@ func TestStreamAudio_RejectsInvalidVideoIDsWithoutForking(t *testing.T) {
 
 func TestFetchInfo_NonZeroExitSurfacesStderr(t *testing.T) {
 	script := writeFakeYtdlp(t, `echo "boom" >&2 && exit 7`)
-	_, err := FetchInfo(context.Background(), script, "ZEcqHA7dbwM")
+	_, err := FetchInfo(context.Background(), script, "ZEcqHA7dbwM", "")
 	if err == nil {
 		t.Fatal("FetchInfo: got nil error on exit 7")
 	}
@@ -167,7 +168,7 @@ func TestFetchInfo_NonZeroExitSurfacesStderr(t *testing.T) {
 func TestStreamAudio_NonZeroExitSurfacesStderr(t *testing.T) {
 	script := writeFakeYtdlp(t, `echo "audio boom" >&2 && exit 3`)
 	var buf bytes.Buffer
-	err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", &buf)
+	err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", "", &buf)
 	if err == nil {
 		t.Fatal("StreamAudio: got nil error")
 	}
@@ -180,7 +181,7 @@ func TestStreamAudio_NonZeroExitSurfacesStderr(t *testing.T) {
 func TestFetchInfo_StderrTailCapped(t *testing.T) {
 	// 2000 bytes of "a" to stderr.
 	script := writeFakeYtdlp(t, `head -c 2000 /dev/zero | tr '\0' a >&2 && exit 1`)
-	_, err := FetchInfo(context.Background(), script, "ZEcqHA7dbwM")
+	_, err := FetchInfo(context.Background(), script, "ZEcqHA7dbwM", "")
 	if err == nil {
 		t.Fatal("got nil error")
 	}
@@ -205,7 +206,7 @@ func TestFetchInfo_ContextCancellationReturnsPromptly(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := FetchInfo(ctx, script, "ZEcqHA7dbwM")
+		_, err := FetchInfo(ctx, script, "ZEcqHA7dbwM", "")
 		done <- err
 	}()
 	// Give the subprocess a beat to actually start.
@@ -227,7 +228,7 @@ func TestStreamAudio_ContextCancellationReturnsPromptly(t *testing.T) {
 	var buf bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		done <- StreamAudio(ctx, script, "ZEcqHA7dbwM", "opus", &buf)
+		done <- StreamAudio(ctx, script, "ZEcqHA7dbwM", "opus", "", &buf)
 	}()
 	time.Sleep(50 * time.Millisecond)
 	cancel()
@@ -244,7 +245,7 @@ func TestStreamAudio_ContextCancellationReturnsPromptly(t *testing.T) {
 func TestFetchInfo_EmptyStdoutPropagatesParseError(t *testing.T) {
 	// Exit 0 with empty stdout: should hit Parse and fail there.
 	script := writeFakeYtdlp(t, `exit 0`)
-	_, err := FetchInfo(context.Background(), script, "ZEcqHA7dbwM")
+	_, err := FetchInfo(context.Background(), script, "ZEcqHA7dbwM", "")
 	if err == nil {
 		t.Fatal("expected parse error on empty stdout")
 	}
@@ -257,7 +258,7 @@ func TestFetchInfo_ArgvIncludesRegressionFlags(t *testing.T) {
 	// Script prints its args separated by newlines, then exits non-zero so
 	// FetchInfo wraps stderr (the printed argv) into the error.
 	script := writeFakeYtdlp(t, `for a in "$@"; do echo "$a" >&2; done; exit 1`)
-	_, err := FetchInfo(context.Background(), script, "ZEcqHA7dbwM")
+	_, err := FetchInfo(context.Background(), script, "ZEcqHA7dbwM", "")
 	if err == nil {
 		t.Fatal("expected error to surface argv")
 	}
@@ -280,7 +281,7 @@ func TestFetchInfo_ArgvIncludesRegressionFlags(t *testing.T) {
 func TestStreamAudio_ArgvIncludesRegressionFlags(t *testing.T) {
 	script := writeFakeYtdlp(t, `for a in "$@"; do echo "$a" >&2; done; exit 1`)
 	var buf bytes.Buffer
-	err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", &buf)
+	err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", "", &buf)
 	if err == nil {
 		t.Fatal("expected error to surface argv")
 	}
@@ -333,5 +334,81 @@ func TestVideoIDRe_KnownBad(t *testing.T) {
 		if VideoIDRe.MatchString(id) {
 			t.Errorf("VideoIDRe accepted known bad ID %q", id)
 		}
+	}
+}
+
+func TestFetchInfo_PassesCookiesFlag(t *testing.T) {
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv.txt")
+	cookies := filepath.Join(dir, "cookies.txt")
+	if err := os.WriteFile(cookies, []byte("# Netscape HTTP Cookie File\n"), 0o600); err != nil {
+		t.Fatalf("seed cookies: %v", err)
+	}
+	script := writeFakeYtdlp(t, `printf '%s\n' "$@" > `+argvFile+` ; cat <<'JSON'
+{"id":"ZEcqHA7dbwM","title":"x","duration":120,"webpage_url":"https://www.youtube.com/watch?v=ZEcqHA7dbwM"}
+JSON`)
+	if _, err := FetchInfo(context.Background(), script, "ZEcqHA7dbwM", cookies); err != nil {
+		t.Fatalf("FetchInfo: %v", err)
+	}
+	argv, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv: %v", err)
+	}
+	if !strings.Contains(string(argv), "--cookies") || !strings.Contains(string(argv), cookies) {
+		t.Fatalf("argv missing cookies flag: %s", argv)
+	}
+}
+
+func TestFetchInfo_EmptyCookiesPath_NoFlag(t *testing.T) {
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv.txt")
+	script := writeFakeYtdlp(t, `printf '%s\n' "$@" > `+argvFile+` ; cat <<'JSON'
+{"id":"ZEcqHA7dbwM","title":"x","duration":120,"webpage_url":"https://www.youtube.com/watch?v=ZEcqHA7dbwM"}
+JSON`)
+	if _, err := FetchInfo(context.Background(), script, "ZEcqHA7dbwM", ""); err != nil {
+		t.Fatalf("FetchInfo: %v", err)
+	}
+	argv, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv: %v", err)
+	}
+	if strings.Contains(string(argv), "--cookies") {
+		t.Fatalf("argv unexpectedly contains --cookies: %s", argv)
+	}
+}
+
+func TestStreamAudio_PassesCookiesFlag(t *testing.T) {
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv.txt")
+	cookies := filepath.Join(dir, "cookies.txt")
+	if err := os.WriteFile(cookies, []byte("# Netscape HTTP Cookie File\n"), 0o600); err != nil {
+		t.Fatalf("seed cookies: %v", err)
+	}
+	script := writeFakeYtdlp(t, `printf '%s\n' "$@" > `+argvFile)
+	if err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", cookies, io.Discard); err != nil {
+		t.Fatalf("StreamAudio: %v", err)
+	}
+	argv, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv: %v", err)
+	}
+	if !strings.Contains(string(argv), "--cookies") || !strings.Contains(string(argv), cookies) {
+		t.Fatalf("argv missing cookies flag: %s", argv)
+	}
+}
+
+func TestStreamAudio_EmptyCookiesPath_NoFlag(t *testing.T) {
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv.txt")
+	script := writeFakeYtdlp(t, `printf '%s\n' "$@" > `+argvFile)
+	if err := StreamAudio(context.Background(), script, "ZEcqHA7dbwM", "opus", "", io.Discard); err != nil {
+		t.Fatalf("StreamAudio: %v", err)
+	}
+	argv, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv: %v", err)
+	}
+	if strings.Contains(string(argv), "--cookies") {
+		t.Fatalf("argv unexpectedly contains --cookies: %s", argv)
 	}
 }

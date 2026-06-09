@@ -45,8 +45,9 @@ func wrapRunError(verb, videoID string, runErr error, stderr *bytes.Buffer) erro
 }
 
 // FetchInfo runs `yt-dlp -j` for the given videoID and parses the JSON output.
-// Rejects malformed video IDs before forking. Honors ctx cancellation.
-func FetchInfo(ctx context.Context, ytdlpPath, videoID string) (*Info, error) {
+// Rejects malformed video IDs before forking. Honors ctx cancellation. An empty
+// cookiesPath omits the --cookies flag.
+func FetchInfo(ctx context.Context, ytdlpPath, videoID, cookiesPath string) (*Info, error) {
 	if err := validateVideoID(videoID); err != nil {
 		return nil, err
 	}
@@ -56,8 +57,11 @@ func FetchInfo(ctx context.Context, ytdlpPath, videoID string) (*Info, error) {
 		"--no-warnings",
 		"--no-playlist",
 		"--extractor-args", "youtube:player_client=web,web_music",
-		videoURL(videoID),
 	}
+	if cookiesPath != "" {
+		args = append(args, "--cookies", cookiesPath)
+	}
+	args = append(args, videoURL(videoID))
 	cmd := exec.CommandContext(ctx, ytdlpPath, args...)
 	cmd.WaitDelay = killWaitDelay
 	var stdout, stderr bytes.Buffer
@@ -76,7 +80,8 @@ func FetchInfo(ctx context.Context, ytdlpPath, videoID string) (*Info, error) {
 // StreamAudio runs yt-dlp for the given videoID using the format selector chosen
 // by FormatSelector(format) and copies its stdout into w. Rejects malformed video
 // IDs before forking. Honors ctx cancellation. An empty format defaults to opus.
-func StreamAudio(ctx context.Context, ytdlpPath, videoID, format string, w io.Writer) error {
+// An empty cookiesPath omits the --cookies flag.
+func StreamAudio(ctx context.Context, ytdlpPath, videoID, format, cookiesPath string, w io.Writer) error {
 	if err := validateVideoID(videoID); err != nil {
 		return err
 	}
@@ -87,8 +92,11 @@ func StreamAudio(ctx context.Context, ytdlpPath, videoID, format string, w io.Wr
 		"--no-warnings",
 		"--no-playlist",
 		"--extractor-args", "youtube:player_client=web,web_music",
-		videoURL(videoID),
 	}
+	if cookiesPath != "" {
+		args = append(args, "--cookies", cookiesPath)
+	}
+	args = append(args, videoURL(videoID))
 	cmd := exec.CommandContext(ctx, ytdlpPath, args...)
 	cmd.WaitDelay = killWaitDelay
 	var stderr bytes.Buffer
