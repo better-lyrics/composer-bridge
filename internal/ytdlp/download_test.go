@@ -55,7 +55,7 @@ func TestDownloadToFile_PassesCookiesFlag(t *testing.T) {
 	}
 	dest := filepath.Join(dir, "out.opus")
 	script := writeFakeYtdlp(t, `printf '%s\n' "$@" > `+argvFile+` ; : > `+dest)
-	if _, err := DownloadToFile(context.Background(), script, "ZEcqHA7dbwM", "opus", dest, cookies); err != nil {
+	if _, err := DownloadToFile(context.Background(), script, "ZEcqHA7dbwM", "opus", dest, cookies, false); err != nil {
 		t.Fatalf("DownloadToFile: %v", err)
 	}
 	argv, err := os.ReadFile(argvFile)
@@ -72,7 +72,7 @@ func TestDownloadToFile_EmptyCookiesPath_NoFlag(t *testing.T) {
 	argvFile := filepath.Join(dir, "argv.txt")
 	dest := filepath.Join(dir, "out.opus")
 	script := writeFakeYtdlp(t, `printf '%s\n' "$@" > `+argvFile+` ; : > `+dest)
-	if _, err := DownloadToFile(context.Background(), script, "ZEcqHA7dbwM", "opus", dest, ""); err != nil {
+	if _, err := DownloadToFile(context.Background(), script, "ZEcqHA7dbwM", "opus", dest, "", false); err != nil {
 		t.Fatalf("DownloadToFile: %v", err)
 	}
 	argv, err := os.ReadFile(argvFile)
@@ -81,5 +81,39 @@ func TestDownloadToFile_EmptyCookiesPath_NoFlag(t *testing.T) {
 	}
 	if strings.Contains(string(argv), "--cookies") {
 		t.Fatalf("argv unexpectedly contains --cookies: %s", argv)
+	}
+}
+
+func TestDownloadToFile_PreferPremiumPrependsWebMusic(t *testing.T) {
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv.txt")
+	dest := filepath.Join(dir, "out.opus")
+	script := writeFakeYtdlp(t, `printf '%s\n' "$@" > `+argvFile+` ; : > `+dest)
+	if _, err := DownloadToFile(context.Background(), script, "ZEcqHA7dbwM", "opus", dest, "", true); err != nil {
+		t.Fatalf("DownloadToFile: %v", err)
+	}
+	argv, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv: %v", err)
+	}
+	if !strings.Contains(string(argv), "web_music") {
+		t.Fatalf("argv missing web_music when preferPremium=true: %s", argv)
+	}
+}
+
+func TestDownloadToFile_DefaultExcludesWebMusic(t *testing.T) {
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv.txt")
+	dest := filepath.Join(dir, "out.opus")
+	script := writeFakeYtdlp(t, `printf '%s\n' "$@" > `+argvFile+` ; : > `+dest)
+	if _, err := DownloadToFile(context.Background(), script, "ZEcqHA7dbwM", "opus", dest, "", false); err != nil {
+		t.Fatalf("DownloadToFile: %v", err)
+	}
+	argv, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv: %v", err)
+	}
+	if strings.Contains(string(argv), "web_music") {
+		t.Fatalf("argv unexpectedly contains web_music when preferPremium=false: %s", argv)
 	}
 }

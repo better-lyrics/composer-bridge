@@ -28,6 +28,7 @@ export interface AppBindings {
   RemoveCookies: Mock<() => Promise<void>>;
   CookiesState: Mock<() => Promise<app.CookiesStatus>>;
   SetCookiesEnabled: Mock<(enabled: boolean) => Promise<void>>;
+  SetPreferPremiumAudio: Mock<(enabled: boolean) => Promise<void>>;
   VerifyCookies: Mock<() => Promise<ytdlp.VerifyResult>>;
 }
 
@@ -106,8 +107,10 @@ export function setupWailsMock(overrides: Partial<AppBindings> = {}): AppBinding
       present: false,
       enabled: false,
       path: "/Users/test/.composer-bridge/cookies.txt",
+      prefer_premium: false,
     } as app.CookiesStatus),
     SetCookiesEnabled: vi.fn<(enabled: boolean) => Promise<void>>().mockResolvedValue(undefined),
+    SetPreferPremiumAudio: vi.fn<(enabled: boolean) => Promise<void>>().mockResolvedValue(undefined),
     VerifyCookies: vi.fn<() => Promise<ytdlp.VerifyResult>>().mockResolvedValue({
       loaded: false,
       authenticated: false,

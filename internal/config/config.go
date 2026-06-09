@@ -29,14 +29,18 @@ type Config struct {
 	// The path on disk is always <dataDir>/cookies.txt; this boolean is what
 	// the user toggles via Settings after uploading. Defaults to false on
 	// fresh installs so a never-uploaded user gets the anonymous code path.
-	CookiesEnabled  bool   `json:"cookies_enabled"`
-	ShowMenuBarIcon bool   `json:"show_menu_bar_icon"`
-	MaxConcurrent   int    `json:"max_concurrent"`
-	AudioFormat     string `json:"audio_format"`
-	AudioQuality    string `json:"audio_quality"`
-	LogLevel        string `json:"log_level"`
-	DataDir         string `json:"data_dir"`
-	DownloadDir     string `json:"download_dir"`
+	CookiesEnabled bool `json:"cookies_enabled"`
+	// PreferPremiumAudio asks yt-dlp to try YouTube Music's higher quality
+	// tier first, gated on CookiesEnabled. Off by default because the probe
+	// can add ~30s per request when Premium isn't actually available.
+	PreferPremiumAudio bool   `json:"prefer_premium_audio"`
+	ShowMenuBarIcon    bool   `json:"show_menu_bar_icon"`
+	MaxConcurrent      int    `json:"max_concurrent"`
+	AudioFormat        string `json:"audio_format"`
+	AudioQuality       string `json:"audio_quality"`
+	LogLevel           string `json:"log_level"`
+	DataDir            string `json:"data_dir"`
+	DownloadDir        string `json:"download_dir"`
 }
 
 // Defaults returns the canonical default Config. Each call returns a fresh value: mutating the result, including

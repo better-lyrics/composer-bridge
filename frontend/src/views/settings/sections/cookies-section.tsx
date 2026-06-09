@@ -4,6 +4,7 @@ import {
   CookiesState,
   RemoveCookies,
   SetCookiesEnabled,
+  SetPreferPremiumAudio,
   UploadCookies,
   VerifyCookies,
 } from "../../../../wailsjs/go/app/App";
@@ -211,6 +212,18 @@ const CookiesSection: React.FC = () => {
     }
   };
 
+  const handlePreferPremium = async (enabled: boolean) => {
+    setBusy(true);
+    try {
+      await SetPreferPremiumAudio(enabled);
+      refresh();
+    } catch (err: unknown) {
+      console.error("SetPreferPremiumAudio failed", err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleVerify = async () => {
     setBusy(true);
     try {
@@ -230,6 +243,7 @@ const CookiesSection: React.FC = () => {
 
   const present = state?.present ?? false;
   const enabled = state?.enabled ?? false;
+  const preferPremium = state?.prefer_premium ?? false;
 
   return (
     <section className="flex flex-col">
@@ -313,6 +327,21 @@ const CookiesSection: React.FC = () => {
             >
               {busy ? "Verifying…" : "Verify now"}
             </Button>
+          </SettingRow>
+        )}
+        {present && enabled && (
+          <SettingRow
+            label="Prefer Premium audio quality"
+            description="Tries YouTube Music's higher quality tier first when your cookies have a Premium sign-in. The probe stalls for 30 seconds or more per request and falls back to the standard tier when Premium is not available. Leave off if downloads feel slow."
+          >
+            <Toggle
+              checked={preferPremium}
+              disabled={busy}
+              onChange={(v) => {
+                void handlePreferPremium(v);
+              }}
+              ariaLabel="Prefer Premium audio quality"
+            />
           </SettingRow>
         )}
         {verification && (

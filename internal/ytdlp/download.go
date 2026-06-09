@@ -45,8 +45,9 @@ func FormatExtension(format string) string {
 // DownloadToFile runs yt-dlp to fetch audio for videoID using the chosen format
 // and writes it to destPath. Returns the resulting file size in bytes. Honors
 // ctx cancellation and rejects malformed video IDs before forking. An empty
-// cookiesPath omits the --cookies flag.
-func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath, cookiesPath string) (int64, error) {
+// cookiesPath omits the --cookies flag. When preferPremium is true, the
+// extractor-args chain tries YouTube Music's higher quality tier first.
+func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath, cookiesPath string, preferPremium bool) (int64, error) {
 	if err := validateVideoID(videoID); err != nil {
 		return 0, err
 	}
@@ -56,7 +57,7 @@ func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath, c
 		"--no-warnings",
 		"--no-playlist",
 		"--force-overwrites",
-		"--extractor-args", "youtube:player_client=android_vr,web_safari;player_skip=configs,initial_data",
+		"--extractor-args", BuildExtractorArgs(preferPremium),
 	}
 	if cookiesPath != "" {
 		args = append(args, "--cookies", cookiesPath)

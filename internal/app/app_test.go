@@ -751,3 +751,60 @@ func TestApp_VerifyCookies_ReturnsErrorWhenNoFile(t *testing.T) {
 		t.Fatalf("VerifyCookies with no file: want error")
 	}
 }
+
+// -- PreferPremiumAudio --------------------------------------------------------
+
+func TestApp_SetPreferPremiumAudio_Persists(t *testing.T) {
+	a, _, _, cfgPath := newTestApp(t)
+	if err := a.SetPreferPremiumAudio(true); err != nil {
+		t.Fatalf("SetPreferPremiumAudio: %v", err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if !cfg.PreferPremiumAudio {
+		t.Fatalf("PreferPremiumAudio not persisted")
+	}
+}
+
+func TestApp_PreferPremiumAudio_GatedOnCookies(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	_ = a.SetPreferPremiumAudio(true)
+	// Cookies not present -> should return false even though flag is true.
+	if a.PreferPremiumAudio() {
+		t.Fatalf("PreferPremiumAudio should be gated off without cookies")
+	}
+	_ = a.UploadCookies("# Netscape HTTP Cookie File\n")
+	if !a.PreferPremiumAudio() {
+		t.Fatalf("PreferPremiumAudio should return true when cookies present + enabled + flag set")
+	}
+	_ = a.SetCookiesEnabled(false)
+	if a.PreferPremiumAudio() {
+		t.Fatalf("PreferPremiumAudio should be gated off when cookies disabled")
+	}
+}
+
+func TestApp_PreferPremiumAudio_FalseWhenFlagOff(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	_ = a.UploadCookies("# Netscape HTTP Cookie File\n")
+	// Flag is off by default; PreferPremiumAudio should report false even when cookies are live.
+	if a.PreferPremiumAudio() {
+		t.Fatalf("PreferPremiumAudio should be false when flag is off")
+	}
+}
+
+func TestApp_CookiesState_ReflectsPreferPremium(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	state := a.CookiesState()
+	if state.PreferPremium {
+		t.Fatalf("CookiesState.PreferPremium should default to false")
+	}
+	if err := a.SetPreferPremiumAudio(true); err != nil {
+		t.Fatalf("SetPreferPremiumAudio: %v", err)
+	}
+	state = a.CookiesState()
+	if !state.PreferPremium {
+		t.Fatalf("CookiesState.PreferPremium should reflect persisted flag")
+	}
+}

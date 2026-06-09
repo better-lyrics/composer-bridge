@@ -63,12 +63,17 @@ type Handlers struct {
 	// Read on every request so toggles take effect immediately. A nil callback
 	// is treated as "" (no cookies, anonymous downloads).
 	CookiesPath func() string
-	ThumbDir    string
-	Bridge      string
-	AudioFormat string
-	Emitter     events.Emitter
-	EmitterCtx  context.Context
-	State       *bridgestate.Holder
+	// PreferPremiumAudio reports whether yt-dlp should try YouTube Music's
+	// higher quality tier first. Read on every request so toggling takes
+	// effect immediately. A nil callback is treated as false. Gated by the
+	// App so the flag only takes effect when cookies are also live.
+	PreferPremiumAudio func() bool
+	ThumbDir           string
+	Bridge             string
+	AudioFormat        string
+	Emitter            events.Emitter
+	EmitterCtx         context.Context
+	State              *bridgestate.Holder
 }
 
 // Router returns the bridge's HTTP mux. Wrap with WithCORS at the call site for browser access.
@@ -91,6 +96,16 @@ func (h *Handlers) cookiesPath() string {
 		return ""
 	}
 	return h.CookiesPath()
+}
+
+// preferPremium returns the live premium-audio gate via the callback, or
+// false when no callback is wired. Centralized so every yt-dlp call site
+// stays consistent.
+func (h *Handlers) preferPremium() bool {
+	if h.PreferPremiumAudio == nil {
+		return false
+	}
+	return h.PreferPremiumAudio()
 }
 
 // Health returns bridge version, yt-dlp version, and a literal "ok" status. Field names are locked to Composer's BridgeHealth interface.
@@ -144,7 +159,7 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	tw := &trackingWriter{rw: w}
 	streamCtx, cancel := context.WithTimeout(r.Context(), audioStreamTTL)
 	defer cancel()
-	err := ytdlp.StreamAudio(streamCtx, h.YtdlpPath, videoID, format, h.cookiesPath(), tw)
+	err := ytdlp.StreamAudio(streamCtx, h.YtdlpPath, videoID, format, h.cookiesPath(), h.preferPremium(), tw)
 	if err == nil {
 		h.endActivity(actID, activity.StatusOK, "")
 		if h.State != nil {
@@ -172,7 +187,7 @@ func (h *Handlers) resolveTrackForAudio(ctx context.Context, videoID string) *li
 	}
 	infoCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	info, err := ytdlp.FetchInfo(infoCtx, h.YtdlpPath, videoID, h.cookiesPath())
+	info, err := ytdlp.FetchInfo(infoCtx, h.YtdlpPath, videoID, h.cookiesPath(), h.preferPremium())
 	if err != nil {
 		slog.Warn("audio: info fetch failed", "videoID", videoID, "err", err)
 		return nil
@@ -210,7 +225,7 @@ func (h *Handlers) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actID := h.startActivity(activity.KindImport, body.VideoID)
-	info, err := ytdlp.FetchInfo(r.Context(), h.YtdlpPath, body.VideoID, h.cookiesPath())
+	info, err := ytdlp.FetchInfo(r.Context(), h.YtdlpPath, body.VideoID, h.cookiesPath(), h.preferPremium())
 	if err != nil {
 		h.endActivity(actID, activity.StatusError, fmt.Sprintf("%s: %v", body.VideoID, err))
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("yt-dlp info failed for %s", body.VideoID))

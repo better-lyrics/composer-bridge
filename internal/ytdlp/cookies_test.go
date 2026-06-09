@@ -8,6 +8,26 @@ import (
 	"testing"
 )
 
+func TestBuildExtractorArgs_DefaultExcludesWebMusic(t *testing.T) {
+	got := BuildExtractorArgs(false)
+	if strings.Contains(got, "web_music") {
+		t.Errorf("default args should not include web_music, got %q", got)
+	}
+	if !strings.Contains(got, "player_skip=configs,initial_data") {
+		t.Errorf("default args should include player_skip, got %q", got)
+	}
+}
+
+func TestBuildExtractorArgs_PreferPremiumPrependsWebMusic(t *testing.T) {
+	got := BuildExtractorArgs(true)
+	if !strings.HasPrefix(got, "youtube:player_client=web_music,") {
+		t.Errorf("prefer-premium args should start with web_music, got %q", got)
+	}
+	if !strings.Contains(got, "android_vr") || !strings.Contains(got, "web_safari") {
+		t.Errorf("prefer-premium args should still include fallback clients, got %q", got)
+	}
+}
+
 func TestCookiesPath_Canonical(t *testing.T) {
 	dir := t.TempDir()
 	got := CookiesPath(dir)

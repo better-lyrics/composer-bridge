@@ -90,15 +90,16 @@ func main() {
 	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
 
 	handlers := &server.Handlers{
-		Library:      lib,
-		Activity:     act,
-		YtdlpPath:    ytdlpPath,
-		YtdlpVersion: getYtdlpVersion,
-		CookiesPath:  a.CookiesPath,
-		ThumbDir:     filepath.Join(dataDir, "thumbs"),
-		Bridge:       Version,
-		AudioFormat:  cfg.AudioFormat,
-		State:        holder,
+		Library:            lib,
+		Activity:           act,
+		YtdlpPath:          ytdlpPath,
+		YtdlpVersion:       getYtdlpVersion,
+		CookiesPath:        a.CookiesPath,
+		PreferPremiumAudio: a.PreferPremiumAudio,
+		ThumbDir:           filepath.Join(dataDir, "thumbs"),
+		Bridge:             Version,
+		AudioFormat:        cfg.AudioFormat,
+		State:              holder,
 		Emitter: events.EmitterFunc(func(ctx context.Context, name string, args ...any) {
 			if ctx == nil {
 				return

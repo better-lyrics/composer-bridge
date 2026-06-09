@@ -408,21 +408,27 @@ func (a *App) CookiesPath() string {
 // diverge: a user can upload then toggle off, or toggle on without ever
 // uploading (in which case yt-dlp falls back to anonymous). Path is the
 // canonical disk location regardless of state, so the UI can display it.
+// PreferPremium mirrors the cfg.PreferPremiumAudio flag so the UI can show
+// the toggle state; the flag has no effect at the yt-dlp call sites unless
+// cookies are also present and enabled (see App.PreferPremiumAudio).
 type CookiesStatus struct {
-	Present bool   `json:"present"`
-	Enabled bool   `json:"enabled"`
-	Path    string `json:"path"`
+	Present       bool   `json:"present"`
+	Enabled       bool   `json:"enabled"`
+	Path          string `json:"path"`
+	PreferPremium bool   `json:"prefer_premium"`
 }
 
 // CookiesState returns the current cookies feature state.
 func (a *App) CookiesState() CookiesStatus {
 	a.mu.RLock()
 	enabled := a.cfg.CookiesEnabled
+	preferPremium := a.cfg.PreferPremiumAudio
 	a.mu.RUnlock()
 	return CookiesStatus{
-		Present: ytdlp.HasCookies(a.dataDir),
-		Enabled: enabled,
-		Path:    ytdlp.CookiesPath(a.dataDir),
+		Present:       ytdlp.HasCookies(a.dataDir),
+		Enabled:       enabled,
+		Path:          ytdlp.CookiesPath(a.dataDir),
+		PreferPremium: preferPremium,
 	}
 }
 
@@ -465,6 +471,33 @@ func (a *App) SetCookiesEnabled(enabled bool) error {
 	cfgCopy := a.cfg
 	a.mu.Unlock()
 	return config.Save(a.cfgPath, cfgCopy)
+}
+
+// SetPreferPremiumAudio persists the opt-in flag that prepends web_music to
+// yt-dlp's player_client chain. The flag is harmless on its own; the gate at
+// PreferPremiumAudio() ensures it has no runtime effect until cookies are
+// also present and enabled.
+func (a *App) SetPreferPremiumAudio(enabled bool) error {
+	a.mu.Lock()
+	a.cfg.PreferPremiumAudio = enabled
+	cfgCopy := a.cfg
+	a.mu.Unlock()
+	return config.Save(a.cfgPath, cfgCopy)
+}
+
+// PreferPremiumAudio reports the effective state of the premium audio probe.
+// Returns true only when the user has flipped the flag AND cookies are
+// uploaded AND the cookies feature is enabled. This makes the toggle a
+// no-op for users without cookies, keeping them on the fast extractor chain.
+func (a *App) PreferPremiumAudio() bool {
+	a.mu.RLock()
+	flag := a.cfg.PreferPremiumAudio
+	cookiesEnabled := a.cfg.CookiesEnabled
+	a.mu.RUnlock()
+	if !flag || !cookiesEnabled {
+		return false
+	}
+	return ytdlp.HasCookies(a.dataDir)
 }
 
 // VerifyCookies runs a yt-dlp probe against a stable YouTube URL using the
@@ -652,7 +685,7 @@ func (a *App) DownloadAudio(videoID string) (*library.Track, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	actID := a.startActivity(activity.KindAudioDownload, videoID)
-	size, err := ytdlp.DownloadToFile(ctx, ytdlpPath, videoID, format, dest, a.CookiesPath())
+	size, err := ytdlp.DownloadToFile(ctx, ytdlpPath, videoID, format, dest, a.CookiesPath(), a.PreferPremiumAudio())
 	if err != nil {
 		a.endActivity(actID, activity.StatusError, err.Error())
 		return nil, err

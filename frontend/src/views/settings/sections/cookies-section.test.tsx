@@ -9,6 +9,7 @@ const cookiesStatus = (overrides: Partial<app.CookiesStatus> = {}): app.CookiesS
     present: false,
     enabled: false,
     path: "/Users/test/.composer-bridge/cookies.txt",
+    prefer_premium: false,
     ...overrides,
   }) as app.CookiesStatus;
 
@@ -47,7 +48,7 @@ describe("CookiesSection", () => {
     bindings.CookiesState.mockResolvedValue(cookiesStatus({ present: true, enabled: true }));
     render(<CookiesSection />);
     await waitFor(() => expect(screen.getByText(/Active\./i)).toBeInTheDocument());
-    const toggle = screen.getByRole("switch") as HTMLButtonElement;
+    const toggle = screen.getByRole("switch", { name: /Cookies enabled/i }) as HTMLButtonElement;
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     expect(screen.getByRole("button", { name: /Remove/i })).toBeInTheDocument();
   });
@@ -56,7 +57,7 @@ describe("CookiesSection", () => {
     bindings.CookiesState.mockResolvedValue(cookiesStatus({ present: true, enabled: false }));
     render(<CookiesSection />);
     await waitFor(() => expect(screen.getByText(/Uploaded but paused/i)).toBeInTheDocument());
-    const toggle = screen.getByRole("switch") as HTMLButtonElement;
+    const toggle = screen.getByRole("switch", { name: /Cookies enabled/i }) as HTMLButtonElement;
     expect(toggle.getAttribute("aria-checked")).toBe("false");
   });
 
@@ -125,7 +126,7 @@ describe("CookiesSection", () => {
     bindings.CookiesState.mockResolvedValue(cookiesStatus({ present: true, enabled: true }));
     render(<CookiesSection />);
     await waitFor(() => expect(screen.getByText(/Active\./i)).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.click(screen.getByRole("switch", { name: /Cookies enabled/i }));
     await waitFor(() => expect(bindings.SetCookiesEnabled).toHaveBeenCalledWith(false));
   });
 
@@ -133,7 +134,7 @@ describe("CookiesSection", () => {
     bindings.CookiesState.mockResolvedValue(cookiesStatus({ present: true, enabled: false }));
     render(<CookiesSection />);
     await waitFor(() => expect(screen.getByText(/Uploaded but paused/i)).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.click(screen.getByRole("switch", { name: /Cookies enabled/i }));
     await waitFor(() => expect(bindings.SetCookiesEnabled).toHaveBeenCalledWith(true));
   });
 
@@ -189,5 +190,67 @@ describe("CookiesSection", () => {
       expect(detail).toBeInTheDocument();
       expect(detail.className).toMatch(/composer-error-text/);
     });
+  });
+
+  it("shows the Prefer Premium toggle ON when prefer_premium: true", async () => {
+    bindings.CookiesState.mockResolvedValue(
+      cookiesStatus({ present: true, enabled: true, prefer_premium: true }),
+    );
+    render(<CookiesSection />);
+    await waitFor(() => expect(screen.getByText(/Active\./i)).toBeInTheDocument());
+    const toggle = screen.getByRole("switch", { name: /Prefer Premium audio quality/i }) as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("shows the Prefer Premium toggle OFF when prefer_premium: false", async () => {
+    bindings.CookiesState.mockResolvedValue(
+      cookiesStatus({ present: true, enabled: true, prefer_premium: false }),
+    );
+    render(<CookiesSection />);
+    await waitFor(() => expect(screen.getByText(/Active\./i)).toBeInTheDocument());
+    const toggle = screen.getByRole("switch", { name: /Prefer Premium audio quality/i }) as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("toggling Prefer Premium on calls SetPreferPremiumAudio(true)", async () => {
+    bindings.CookiesState.mockResolvedValue(
+      cookiesStatus({ present: true, enabled: true, prefer_premium: false }),
+    );
+    render(<CookiesSection />);
+    await waitFor(() => expect(screen.getByText(/Active\./i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("switch", { name: /Prefer Premium audio quality/i }));
+    await waitFor(() => expect(bindings.SetPreferPremiumAudio).toHaveBeenCalledWith(true));
+  });
+
+  it("toggling Prefer Premium off calls SetPreferPremiumAudio(false)", async () => {
+    bindings.CookiesState.mockResolvedValue(
+      cookiesStatus({ present: true, enabled: true, prefer_premium: true }),
+    );
+    render(<CookiesSection />);
+    await waitFor(() => expect(screen.getByText(/Active\./i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("switch", { name: /Prefer Premium audio quality/i }));
+    await waitFor(() => expect(bindings.SetPreferPremiumAudio).toHaveBeenCalledWith(false));
+  });
+
+  it("hides the Prefer Premium toggle when cookies are absent", async () => {
+    bindings.CookiesState.mockResolvedValue(cookiesStatus({ present: false }));
+    render(<CookiesSection />);
+    await waitFor(() =>
+      expect(screen.getByText(/No cookies uploaded/i)).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole("switch", { name: /Prefer Premium audio quality/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the Prefer Premium toggle when cookies are uploaded but paused", async () => {
+    bindings.CookiesState.mockResolvedValue(
+      cookiesStatus({ present: true, enabled: false }),
+    );
+    render(<CookiesSection />);
+    await waitFor(() => expect(screen.getByText(/Uploaded but paused/i)).toBeInTheDocument());
+    expect(
+      screen.queryByRole("switch", { name: /Prefer Premium audio quality/i }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -46,8 +46,9 @@ func wrapRunError(verb, videoID string, runErr error, stderr *bytes.Buffer) erro
 
 // FetchInfo runs `yt-dlp -j` for the given videoID and parses the JSON output.
 // Rejects malformed video IDs before forking. Honors ctx cancellation. An empty
-// cookiesPath omits the --cookies flag.
-func FetchInfo(ctx context.Context, ytdlpPath, videoID, cookiesPath string) (*Info, error) {
+// cookiesPath omits the --cookies flag. When preferPremium is true, the
+// extractor-args chain tries YouTube Music's higher quality tier first.
+func FetchInfo(ctx context.Context, ytdlpPath, videoID, cookiesPath string, preferPremium bool) (*Info, error) {
 	if err := validateVideoID(videoID); err != nil {
 		return nil, err
 	}
@@ -56,7 +57,7 @@ func FetchInfo(ctx context.Context, ytdlpPath, videoID, cookiesPath string) (*In
 		"--skip-download",
 		"--no-warnings",
 		"--no-playlist",
-		"--extractor-args", "youtube:player_client=android_vr,web_safari;player_skip=configs,initial_data",
+		"--extractor-args", BuildExtractorArgs(preferPremium),
 	}
 	if cookiesPath != "" {
 		args = append(args, "--cookies", cookiesPath)
@@ -80,8 +81,9 @@ func FetchInfo(ctx context.Context, ytdlpPath, videoID, cookiesPath string) (*In
 // StreamAudio runs yt-dlp for the given videoID using the format selector chosen
 // by FormatSelector(format) and copies its stdout into w. Rejects malformed video
 // IDs before forking. Honors ctx cancellation. An empty format defaults to opus.
-// An empty cookiesPath omits the --cookies flag.
-func StreamAudio(ctx context.Context, ytdlpPath, videoID, format, cookiesPath string, w io.Writer) error {
+// An empty cookiesPath omits the --cookies flag. When preferPremium is true, the
+// extractor-args chain tries YouTube Music's higher quality tier first.
+func StreamAudio(ctx context.Context, ytdlpPath, videoID, format, cookiesPath string, preferPremium bool, w io.Writer) error {
 	if err := validateVideoID(videoID); err != nil {
 		return err
 	}
@@ -91,7 +93,7 @@ func StreamAudio(ctx context.Context, ytdlpPath, videoID, format, cookiesPath st
 		"--quiet",
 		"--no-warnings",
 		"--no-playlist",
-		"--extractor-args", "youtube:player_client=android_vr,web_safari;player_skip=configs,initial_data",
+		"--extractor-args", BuildExtractorArgs(preferPremium),
 	}
 	if cookiesPath != "" {
 		args = append(args, "--cookies", cookiesPath)

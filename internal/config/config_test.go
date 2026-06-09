@@ -457,3 +457,25 @@ func TestDefaults_CookiesEnabledFalse(t *testing.T) {
 		t.Fatalf("Defaults().CookiesEnabled should be false (no auto-flagged cookies on fresh install)")
 	}
 }
+
+func TestSave_Load_PreservesPreferPremiumAudio(t *testing.T) {
+	path := tmpConfigPath(t)
+	cfg := Defaults()
+	cfg.PreferPremiumAudio = true
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !loaded.PreferPremiumAudio {
+		t.Fatalf("PreferPremiumAudio lost on round-trip")
+	}
+}
+
+func TestDefaults_PreferPremiumAudioFalse(t *testing.T) {
+	if Defaults().PreferPremiumAudio {
+		t.Fatalf("Defaults().PreferPremiumAudio should be false (opt-in)")
+	}
+}
