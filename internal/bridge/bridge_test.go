@@ -191,4 +191,3 @@ func TestStop_ClearsPort(t *testing.T) {
 		t.Errorf("Port after Stop: got %d, want 0", got)
 	}
 }
-
