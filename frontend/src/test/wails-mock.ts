@@ -1,5 +1,5 @@
 import { vi, type Mock } from "vitest";
-import type { activity, config, library } from "../../wailsjs/go/models";
+import type { activity, bridgestate, config, library } from "../../wailsjs/go/models";
 
 // AppBindings mirrors the auto-generated wailsjs/go/app/App.d.ts surface.
 // All fields are vi.fn() so tests can assert call shape and override returns.
@@ -21,6 +21,9 @@ export interface AppBindings {
   OpenLogFile: Mock<() => Promise<string>>;
   BuildDiagnosticReport: Mock<() => Promise<string>>;
   SupportsAutostart: Mock<() => Promise<boolean>>;
+  BridgeStatus: Mock<() => Promise<bridgestate.State>>;
+  StartServer: Mock<() => Promise<void>>;
+  StopServer: Mock<() => Promise<void>>;
 }
 
 const DEFAULT_CONFIG = {
@@ -84,27 +87,47 @@ export function setupWailsMock(overrides: Partial<AppBindings> = {}): AppBinding
     OpenLogFile: vi.fn<() => Promise<string>>().mockResolvedValue("file:///tmp/bridge.log"),
     BuildDiagnosticReport: vi.fn<() => Promise<string>>().mockResolvedValue("diagnostics"),
     SupportsAutostart: vi.fn<() => Promise<boolean>>().mockResolvedValue(true),
+    BridgeStatus: vi.fn<() => Promise<bridgestate.State>>().mockResolvedValue({
+      server: "stopped",
+      download: "idle",
+      downloadVideoId: "",
+      lastError: "",
+    } as bridgestate.State),
+    StartServer: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    StopServer: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     ...overrides,
   };
   (window as unknown as { go: { app: { App: AppBindings } } }).go = {
     app: { App: bindings },
   };
-  type EventBus = {
-    EventsOn: Mock;
-    EventsOnMultiple: Mock;
-    EventsEmit: Mock;
-    EventsOff: Mock;
-    BrowserOpenURL: Mock;
-  };
-  const runtime: EventBus = {
+  const runtime: WailsRuntime = {
     EventsOn: vi.fn(),
     EventsOnMultiple: vi.fn(),
     EventsEmit: vi.fn(),
     EventsOff: vi.fn(),
     BrowserOpenURL: vi.fn(),
   };
-  (window as unknown as { runtime: EventBus }).runtime = runtime;
+  (window as unknown as { runtime: WailsRuntime }).runtime = runtime;
   return bindings;
+}
+
+// WailsRuntime exposes the vi-mocked event bus that EventsOn/EventsOff route through.
+// Tests that need to assert subscription shape or invoke a captured handler can grab it
+// via getWailsRuntime().
+export interface WailsRuntime {
+  EventsOn: Mock;
+  EventsOnMultiple: Mock;
+  EventsEmit: Mock;
+  EventsOff: Mock;
+  BrowserOpenURL: Mock;
+}
+
+export function getWailsRuntime(): WailsRuntime {
+  const runtime = (window as unknown as { runtime?: WailsRuntime }).runtime;
+  if (!runtime) {
+    throw new Error("Wails runtime mock not installed. Call setupWailsMock() first.");
+  }
+  return runtime;
 }
 
 // resetWailsMock clears any installed bindings between tests so leftover state

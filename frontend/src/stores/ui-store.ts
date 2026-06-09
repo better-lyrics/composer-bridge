@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { activity, config, library } from "../../wailsjs/go/models";
+import type { activity, bridgestate, config, library } from "../../wailsjs/go/models";
 
 export type View = "library" | "activity" | "settings";
 export type LibrarySort = "recent" | "title" | "artist" | "duration";
@@ -22,6 +22,8 @@ interface UIState {
   setBridgeConfig: (cfg: config.Config) => void;
   activityEntries: activity.Entry[] | null;
   setActivityEntries: (entries: activity.Entry[]) => void;
+  bridgeStatus: bridgestate.State | null;
+  setBridgeStatus: (status: bridgestate.State) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -54,4 +56,6 @@ export const useUIStore = create<UIState>((set) => ({
   setBridgeConfig: (bridgeConfig) => set({ bridgeConfig }),
   activityEntries: null,
   setActivityEntries: (activityEntries) => set({ activityEntries }),
+  bridgeStatus: null,
+  setBridgeStatus: (bridgeStatus) => set({ bridgeStatus }),
 }));
