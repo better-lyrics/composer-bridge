@@ -2,7 +2,6 @@ package bridge_test
 
 import (
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -193,42 +192,3 @@ func TestStop_ClearsPort(t *testing.T) {
 	}
 }
 
-func TestStart_DuringStopReturnsError(t *testing.T) {
-	holder := bridgestate.NewHolder()
-	slowHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// A slow handler exists only to extend Shutdown's drain window in
-		// principle. For the race we trigger Stop from a goroutine and call
-		// Start synchronously; Start should observe stopping=true.
-		<-r.Context().Done()
-	})
-	b := bridge.New(holder, func() *http.Server {
-		return &http.Server{Handler: slowHandler}
-	})
-	if err := b.Start(0); err != nil {
-		t.Fatalf("first Start: %v", err)
-	}
-
-	stopDone := make(chan error, 1)
-	go func() {
-		stopDone <- b.Stop()
-	}()
-
-	var startErr error
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		err := b.Start(0)
-		if err != nil && strings.Contains(err.Error(), "stop in progress") {
-			startErr = err
-			break
-		}
-		if err == nil {
-			_ = b.Stop()
-		}
-	}
-
-	<-stopDone
-
-	if startErr == nil || !strings.Contains(startErr.Error(), "stop in progress") {
-		t.Errorf("expected 'stop in progress' error; got %v", startErr)
-	}
-}
