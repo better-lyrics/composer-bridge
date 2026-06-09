@@ -419,6 +419,11 @@ func TestSupportsAutostartIsTrueOnDarwinLinuxWindows(t *testing.T) {
 func newAppWithStateAndBridge(t *testing.T) (*App, *bridgestate.Holder, *bridge.Bridge) {
 	t.Helper()
 	a, _, _, _ := newTestApp(t)
+	// Use an ephemeral port so tests do not collide with a running bridge or
+	// each other; the tests assert holder state, not specific port values.
+	a.mu.Lock()
+	a.cfg.ListenPort = 0
+	a.mu.Unlock()
 	holder := bridgestate.NewHolder()
 	br := bridge.New(holder, func() *http.Server {
 		return &http.Server{Handler: http.NewServeMux()}
