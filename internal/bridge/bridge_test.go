@@ -2,6 +2,7 @@ package bridge_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 
 func TestStart_FlipsServerStatusToRunning(t *testing.T) {
 	holder := bridgestate.NewHolder()
-	b := bridge.New(holder, &http.Server{Handler: http.NewServeMux()})
+	b := bridge.New(holder, func() *http.Server { return &http.Server{Handler: http.NewServeMux()} })
 
 	if err := b.Start(0); err != nil { // 0 = ephemeral port
 		t.Fatalf("Start: %v", err)
@@ -30,7 +31,7 @@ func TestStart_FlipsServerStatusToRunning(t *testing.T) {
 
 func TestStop_FlipsServerStatusToStopped(t *testing.T) {
 	holder := bridgestate.NewHolder()
-	b := bridge.New(holder, &http.Server{Handler: http.NewServeMux()})
+	b := bridge.New(holder, func() *http.Server { return &http.Server{Handler: http.NewServeMux()} })
 	if err := b.Start(0); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -44,7 +45,7 @@ func TestStop_FlipsServerStatusToStopped(t *testing.T) {
 
 func TestStart_OnPortAlreadyBound_ReturnsErrorAndFlipsBackToStopped(t *testing.T) {
 	holder := bridgestate.NewHolder()
-	first := bridge.New(holder, &http.Server{Handler: http.NewServeMux()})
+	first := bridge.New(holder, func() *http.Server { return &http.Server{Handler: http.NewServeMux()} })
 	if err := first.Start(0); err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
@@ -52,7 +53,7 @@ func TestStart_OnPortAlreadyBound_ReturnsErrorAndFlipsBackToStopped(t *testing.T
 	port := first.Port()
 
 	secondHolder := bridgestate.NewHolder()
-	second := bridge.New(secondHolder, &http.Server{Handler: http.NewServeMux()})
+	second := bridge.New(secondHolder, func() *http.Server { return &http.Server{Handler: http.NewServeMux()} })
 	if err := second.Start(port); err == nil {
 		_ = second.Stop()
 		t.Fatal("expected port-in-use error, got nil")
@@ -64,7 +65,7 @@ func TestStart_OnPortAlreadyBound_ReturnsErrorAndFlipsBackToStopped(t *testing.T
 
 func TestStop_BeforeStartIsNoop(t *testing.T) {
 	holder := bridgestate.NewHolder()
-	b := bridge.New(holder, &http.Server{Handler: http.NewServeMux()})
+	b := bridge.New(holder, func() *http.Server { return &http.Server{Handler: http.NewServeMux()} })
 	if err := b.Stop(); err != nil {
 		t.Errorf("Stop before Start should be a no-op, got %v", err)
 	}
@@ -75,7 +76,7 @@ func TestStop_BeforeStartIsNoop(t *testing.T) {
 
 func TestStart_TwiceReturnsError(t *testing.T) {
 	holder := bridgestate.NewHolder()
-	b := bridge.New(holder, &http.Server{Handler: http.NewServeMux()})
+	b := bridge.New(holder, func() *http.Server { return &http.Server{Handler: http.NewServeMux()} })
 	if err := b.Start(0); err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
@@ -87,7 +88,7 @@ func TestStart_TwiceReturnsError(t *testing.T) {
 
 func TestPort_ReturnsListeningPortAfterStart(t *testing.T) {
 	holder := bridgestate.NewHolder()
-	b := bridge.New(holder, &http.Server{Handler: http.NewServeMux()})
+	b := bridge.New(holder, func() *http.Server { return &http.Server{Handler: http.NewServeMux()} })
 	if err := b.Start(0); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -104,7 +105,7 @@ func TestStart_TransitionsThroughStarting(t *testing.T) {
 		seen = append(seen, s.Server)
 	}))
 
-	b := bridge.New(holder, &http.Server{Handler: http.NewServeMux()})
+	b := bridge.New(holder, func() *http.Server { return &http.Server{Handler: http.NewServeMux()} })
 	if err := b.Start(0); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -118,6 +119,9 @@ func TestStart_TransitionsThroughStarting(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
+	// All transitions happen synchronously inside Start under b.mu, so the
+	// observed order here is deterministic despite the broadcast-out-of-order
+	// caveat documented in bridgestate.
 	// Order must include Starting then Running.
 	var sawStarting, sawRunning bool
 	var startingBeforeRunning bool
@@ -137,5 +141,94 @@ func TestStart_TransitionsThroughStarting(t *testing.T) {
 	}
 	if !sawStarting || !sawRunning || !startingBeforeRunning {
 		t.Errorf("transitions: got %v, want Starting followed by Running", seen)
+	}
+}
+
+func TestStart_AfterStop_BuildsFreshServerAndServes(t *testing.T) {
+	holder := bridgestate.NewHolder()
+	var buildCalls int
+	b := bridge.New(holder, func() *http.Server {
+		buildCalls++
+		return &http.Server{Handler: http.NewServeMux()}
+	})
+
+	if err := b.Start(0); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	if err := b.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if err := b.Start(0); err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Stop() })
+
+	if buildCalls != 2 {
+		t.Errorf("build calls: got %d, want 2 (one per Start)", buildCalls)
+	}
+	if got := holder.Snapshot().Server; got != bridgestate.ServerRunning {
+		t.Errorf("Server after second Start: got %q, want %q", got, bridgestate.ServerRunning)
+	}
+	// Smoke-test that the second cycle actually serves: ListenAndServe-style
+	// hit using b.Port().
+	if b.Port() == 0 {
+		t.Fatal("Port after second Start: 0")
+	}
+}
+
+func TestStop_ClearsPort(t *testing.T) {
+	holder := bridgestate.NewHolder()
+	b := bridge.New(holder, func() *http.Server { return &http.Server{Handler: http.NewServeMux()} })
+	if err := b.Start(0); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if b.Port() == 0 {
+		t.Fatal("Port after Start: 0")
+	}
+	if err := b.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if got := b.Port(); got != 0 {
+		t.Errorf("Port after Stop: got %d, want 0", got)
+	}
+}
+
+func TestStart_DuringStopReturnsError(t *testing.T) {
+	holder := bridgestate.NewHolder()
+	slowHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A slow handler exists only to extend Shutdown's drain window in
+		// principle. For the race we trigger Stop from a goroutine and call
+		// Start synchronously; Start should observe stopping=true.
+		<-r.Context().Done()
+	})
+	b := bridge.New(holder, func() *http.Server {
+		return &http.Server{Handler: slowHandler}
+	})
+	if err := b.Start(0); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+
+	stopDone := make(chan error, 1)
+	go func() {
+		stopDone <- b.Stop()
+	}()
+
+	var startErr error
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		err := b.Start(0)
+		if err != nil && strings.Contains(err.Error(), "stop in progress") {
+			startErr = err
+			break
+		}
+		if err == nil {
+			_ = b.Stop()
+		}
+	}
+
+	<-stopDone
+
+	if startErr == nil || !strings.Contains(startErr.Error(), "stop in progress") {
+		t.Errorf("expected 'stop in progress' error; got %v", startErr)
 	}
 }

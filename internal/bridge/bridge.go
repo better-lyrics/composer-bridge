@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -18,30 +19,38 @@ import (
 
 const shutdownTimeout = 5 * time.Second
 
-// Bridge owns an *http.Server and the listener it is bound to. Start and
-// Stop are safe to call concurrently; the underlying server is reused
-// across stop/start cycles.
+// Bridge owns the listener and the http.Server bound to it for a single
+// run cycle. Because *http.Server cannot be reused after Shutdown, each
+// Start builds a fresh server via the build constructor supplied to New.
+// Start and Stop are safe to call concurrently.
 type Bridge struct {
-	holder *bridgestate.Holder
-	srv    *http.Server
-	mu     sync.Mutex
-	ln     net.Listener
-	port   int
+	holder   *bridgestate.Holder
+	build    func() *http.Server
+	mu       sync.Mutex
+	srv      *http.Server
+	ln       net.Listener
+	port     int
+	stopping bool
 }
 
 // New returns a Bridge that will broadcast lifecycle transitions through
-// holder. The srv handler and timeouts are the caller's responsibility.
-func New(holder *bridgestate.Holder, srv *http.Server) *Bridge {
-	return &Bridge{holder: holder, srv: srv}
+// holder. build is invoked once per Start to construct a fresh
+// *http.Server; it must return a server with handler and timeouts already
+// configured.
+func New(holder *bridgestate.Holder, build func() *http.Server) *Bridge {
+	return &Bridge{holder: holder, build: build}
 }
 
 // Start binds 127.0.0.1:preferred (0 = ephemeral) and begins serving in a
-// background goroutine. Returns an error if the bridge is already running
-// or the port is in use; in either error case the server status flips back
-// to stopped.
+// background goroutine. Returns an error if the bridge is already running,
+// a Stop is in progress, or the port is in use; in the port-in-use case
+// the server status flips back to stopped.
 func (b *Bridge) Start(preferred int) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.stopping {
+		return errors.New("bridge: stop in progress")
+	}
 	if b.ln != nil {
 		return errors.New("bridge: already started")
 	}
@@ -51,9 +60,16 @@ func (b *Bridge) Start(preferred int) error {
 		b.holder.SetServer(bridgestate.ServerStopped)
 		return fmt.Errorf("bridge listen: %w", err)
 	}
+	srv := b.build()
+	b.srv = srv
 	b.ln = ln
 	b.port = ln.Addr().(*net.TCPAddr).Port
-	go func() { _ = b.srv.Serve(ln) }()
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("bridge serve", "err", err)
+			b.holder.SetServer(bridgestate.ServerStopped)
+		}
+	}()
 	b.holder.SetServer(bridgestate.ServerRunning)
 	return nil
 }
@@ -68,11 +84,19 @@ func (b *Bridge) Stop() error {
 	}
 	srv := b.srv
 	b.ln = nil
+	b.srv = nil
+	b.stopping = true
 	b.mu.Unlock()
 	b.holder.SetServer(bridgestate.ServerStopping)
+
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	err := srv.Shutdown(ctx)
+
+	b.mu.Lock()
+	b.port = 0
+	b.stopping = false
+	b.mu.Unlock()
 	b.holder.SetServer(bridgestate.ServerStopped)
 	return err
 }
