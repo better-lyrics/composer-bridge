@@ -182,13 +182,12 @@ func (c *Controller) Stop() {
 }
 
 func (c *Controller) onReady() {
-	if runtime.GOOS == "darwin" {
-		// icons.Mac is the colour appicon for now; template mode desaturates it.
-		// Swap for a monochrome silhouette PNG when one is designed.
-		systray.SetTemplateIcon(icons.Mac, icons.Mac)
-	} else {
-		systray.SetIcon(icons.Default)
+	isMac := runtime.GOOS == "darwin"
+	initial := bridgestate.State{Server: bridgestate.ServerStopped, Download: bridgestate.DownloadIdle}
+	if holder := c.stateHolder(); holder != nil {
+		initial = holder.Snapshot()
 	}
+	applyTrayIcon(initial, isMac)
 	systray.SetTooltip("Composer Bridge")
 
 	mHeader := systray.AddMenuItem("Composer Bridge", "")
@@ -226,6 +225,7 @@ func (c *Controller) onReady() {
 		applyState(mState, mServer, holder.Snapshot())
 		unsub := holder.OnChange(func(s bridgestate.State) {
 			applyState(mState, mServer, s)
+			applyTrayIcon(s, isMac)
 		})
 		c.mu.Lock()
 		c.unsubState = unsub
@@ -312,6 +312,42 @@ func (c *Controller) quitApp() {
 // onExit satisfies systray's required callback signature; no cleanup is
 // needed today because Stop owns the teardown path.
 func (c *Controller) onExit() {}
+
+// pickTrayIcon maps a bridgestate snapshot to the matching tray-bar variant.
+// Stopped/Starting/Stopping all resolve to the dimmed variant regardless of
+// download state. While running, an active download wins over a sticky
+// LastError so the badge reflects what's happening NOW. Returns the mac
+// template bytes plus the colored default bytes; callers pick which to push
+// based on platform.
+func pickTrayIcon(s bridgestate.State, isMac bool) (template, regular []byte) {
+	var tmpl, reg []byte
+	switch {
+	case s.Server != bridgestate.ServerRunning:
+		tmpl, reg = icons.MacStopped, icons.DefaultStopped
+	case s.Download == bridgestate.DownloadActive:
+		tmpl, reg = icons.MacDownloading, icons.DefaultDownloading
+	case s.LastError != "" && s.Download == bridgestate.DownloadIdle:
+		tmpl, reg = icons.MacError, icons.DefaultError
+	default:
+		tmpl, reg = icons.MacIdle, icons.DefaultIdle
+	}
+	if isMac {
+		return tmpl, tmpl
+	}
+	return nil, reg
+}
+
+// applyTrayIcon pushes the picked variant into systray using the correct API
+// for the platform: template mode on macOS for system tint, plain SetIcon
+// everywhere else.
+func applyTrayIcon(s bridgestate.State, isMac bool) {
+	tmpl, reg := pickTrayIcon(s, isMac)
+	if isMac {
+		systray.SetTemplateIcon(tmpl, tmpl)
+		return
+	}
+	systray.SetIcon(reg)
+}
 
 // applyItemIcon picks SetTemplateIcon on macOS so the OS tints menu icons
 // per appearance, and SetIcon elsewhere so other platforms render the
