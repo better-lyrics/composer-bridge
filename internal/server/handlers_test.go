@@ -296,7 +296,7 @@ func TestAudio_ArgvRegressionFlags(t *testing.T) {
 	wantSubstrs := []string{
 		"-f", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best",
 		"-o", "--quiet", "--no-warnings", "--no-playlist",
-		"--extractor-args", "youtube:player_client=web_music,android_vr,web_safari",
+		"--extractor-args", "youtube:player_client=android_vr,web_safari;player_skip=configs,initial_data",
 		"https://www.youtube.com/watch?v=RgKAFK5djSk",
 	}
 	for _, s := range wantSubstrs {

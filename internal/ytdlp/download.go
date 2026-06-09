@@ -56,7 +56,7 @@ func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath, c
 		"--no-warnings",
 		"--no-playlist",
 		"--force-overwrites",
-		"--extractor-args", "youtube:player_client=web_music,android_vr,web_safari",
+		"--extractor-args", "youtube:player_client=android_vr,web_safari;player_skip=configs,initial_data",
 	}
 	if cookiesPath != "" {
 		args = append(args, "--cookies", cookiesPath)
