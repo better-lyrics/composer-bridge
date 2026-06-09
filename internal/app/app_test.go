@@ -259,6 +259,34 @@ func TestSaveConfig_PersistsAndUpdatesInMemoryCopy(t *testing.T) {
 	}
 }
 
+func TestSaveConfig_PreservesServerEnabledAgainstStaleForm(t *testing.T) {
+	// Regression: ServerEnabled is owned by the tray + Settings server toggle,
+	// not the general Settings form. A stale form submit (user opened Settings
+	// before toggling the server off via the tray) must not silently revive
+	// the server-enabled flag.
+	a, _, _, cfgPath := newTestApp(t)
+	a.mu.Lock()
+	a.cfg.ServerEnabled = false
+	a.mu.Unlock()
+
+	stale := config.Defaults() // Defaults().ServerEnabled is true.
+	stale.MaxConcurrent = 4
+	if err := a.SaveConfig(stale); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	reloaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if reloaded.ServerEnabled {
+		t.Errorf("ServerEnabled after stale SaveConfig: got true, want false (server-side authoritative)")
+	}
+	if reloaded.MaxConcurrent != 4 {
+		t.Errorf("MaxConcurrent: got %d, want 4", reloaded.MaxConcurrent)
+	}
+}
+
 func TestOpenInComposer_NoLibraryEntry_ReturnsVideoIdOnly(t *testing.T) {
 	a, _, _, _ := newTestApp(t)
 	got := a.OpenInComposer("dQw4w9WgXcQ")

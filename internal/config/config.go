@@ -24,14 +24,14 @@ type Config struct {
 	// StartServer/StopServer. Fresh installs default to true via Defaults();
 	// thereafter the on-disk value is authoritative so a tray-stopped state
 	// survives restart.
-	ServerEnabled   bool     `json:"server_enabled"`
-	ShowMenuBarIcon bool     `json:"show_menu_bar_icon"`
-	MaxConcurrent   int      `json:"max_concurrent"`
-	AudioFormat     string   `json:"audio_format"`
-	AudioQuality    string   `json:"audio_quality"`
-	LogLevel        string   `json:"log_level"`
-	DataDir         string   `json:"data_dir"`
-	DownloadDir     string   `json:"download_dir"`
+	ServerEnabled   bool   `json:"server_enabled"`
+	ShowMenuBarIcon bool   `json:"show_menu_bar_icon"`
+	MaxConcurrent   int    `json:"max_concurrent"`
+	AudioFormat     string `json:"audio_format"`
+	AudioQuality    string `json:"audio_quality"`
+	LogLevel        string `json:"log_level"`
+	DataDir         string `json:"data_dir"`
+	DownloadDir     string `json:"download_dir"`
 }
 
 // Defaults returns the canonical default Config. Each call returns a fresh value: mutating the result, including

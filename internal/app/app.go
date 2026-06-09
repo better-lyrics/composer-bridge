@@ -45,16 +45,16 @@ var (
 // reads and writes needs mutex protection. mu guards cfg, downloadDir, and
 // ytdlpPath; everything else is set once in New and never mutated.
 type App struct {
-	library      *library.Library
-	activity     *activity.Log
-	cfgPath      string
-	dataDir      string
-	thumbDir     string
-	logPath      string
-	version      string
-	ctx          context.Context
-	hideWindow   func(context.Context)
-	showWindow   func(context.Context)
+	library       *library.Library
+	activity      *activity.Log
+	cfgPath       string
+	dataDir       string
+	thumbDir      string
+	logPath       string
+	version       string
+	ctx           context.Context
+	hideWindow    func(context.Context)
+	showWindow    func(context.Context)
 	ytdlpVersion  func() string
 	state         *bridgestate.Holder
 	bridge        *bridge.Bridge
@@ -272,6 +272,13 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	// The Settings textarea sends origins as a single comma-separated string;
 	// normalize before persisting so the on-disk shape stays a clean array.
 	cfg.AllowedOrigins = config.SplitAndCleanOrigins(cfg.AllowedOrigins)
+	// ServerEnabled is owned by StartServer/StopServer (tray + Settings
+	// toggle) and is not exposed in the SaveConfig form. Preserve the
+	// server-side authoritative value so a stale form submit cannot undo a
+	// toggle that happened while the form was open.
+	a.mu.RLock()
+	cfg.ServerEnabled = a.cfg.ServerEnabled
+	a.mu.RUnlock()
 	if err := config.Save(a.cfgPath, cfg); err != nil {
 		return err
 	}
@@ -380,13 +387,14 @@ func (a *App) SetStatusEmitter(emit func(ctx context.Context, name string, data 
 
 // BridgeStatus returns a snapshot of the bridge's runtime state. Used by the
 // frontend's initial fetch before the bridge:status event stream takes over.
-// Returns the zero value when no holder has been wired (e.g. headless tests).
+// Returns the default-shaped State (server stopped, download idle) when no
+// holder has been wired, so the frontend never sees empty enum strings.
 func (a *App) BridgeStatus() bridgestate.State {
 	a.mu.RLock()
 	state := a.state
 	a.mu.RUnlock()
 	if state == nil {
-		return bridgestate.State{}
+		return bridgestate.State{Server: bridgestate.ServerStopped, Download: bridgestate.DownloadIdle}
 	}
 	return state.Snapshot()
 }
