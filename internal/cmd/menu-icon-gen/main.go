@@ -27,7 +27,7 @@ type icon struct {
 	out string
 }
 
-const targetSize = 36
+const targetSize = 18
 
 func main() {
 	icons := []icon{
