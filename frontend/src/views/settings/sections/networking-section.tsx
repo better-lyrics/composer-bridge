@@ -1,7 +1,7 @@
 import type { config } from "../../../../wailsjs/go/models";
 import { NumberInput } from "@/components/number-input";
+import { OriginListInput } from "@/components/origin-list-input";
 import { SettingRow } from "@/components/setting-row";
-import { TextInput } from "@/components/text-input";
 import { Toggle } from "@/components/toggle";
 
 // -- Interfaces ---------------------------------------------------------------
@@ -38,26 +38,21 @@ const NetworkingSection: React.FC<NetworkingSectionProps> = ({ config, update })
           ariaLabel="Use random port if busy"
         />
       </SettingRow>
-      <SettingRow
-        label="Allowed Composer origins"
-        description="Comma-separated. Cross-origin requests outside this list are blocked."
-      >
-        <TextInput
-          mono
-          value={config.allowed_origins.join(", ")}
-          onChange={(v) =>
-            update(
-              "allowed_origins",
-              v
-                .split(",")
-                .map((s) => s.trim())
-                .filter((s) => s.length > 0),
-            )
-          }
+      <div className="flex flex-col gap-2 py-3">
+        <div className="flex max-w-md flex-col gap-0.5">
+          <span className="text-sm font-medium text-composer-text">
+            Allowed Composer origins
+          </span>
+          <span className="text-xs text-composer-text-muted">
+            Cross-origin requests outside this list are blocked.
+          </span>
+        </div>
+        <OriginListInput
+          origins={config.allowed_origins}
+          onChange={(next) => update("allowed_origins", next)}
           ariaLabel="Allowed Composer origins"
-          className="w-80"
         />
-      </SettingRow>
+      </div>
     </div>
   </section>
 );
