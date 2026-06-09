@@ -173,7 +173,7 @@ func TestHealth_ReturnsLockedJSONShape(t *testing.T) {
 
 func TestHealth_OPTIONSReturns204WithCORS(t *testing.T) {
 	env := newTestEnv(t, writeFakeYtdlp(t, `echo "2025.06.30"`))
-	handler := WithCORS(env.handlers.Router(), corsAllowed)
+	handler := WithCORS(env.handlers.Router(), staticOrigins(corsAllowed))
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 
@@ -770,7 +770,7 @@ func TestAudio_EmitterPublishesStartAndEnd(t *testing.T) {
 
 func TestRouter_UnderCORSWrappersStillRoutes(t *testing.T) {
 	env := newTestEnv(t, writeFakeYtdlp(t, `echo "2025.06.30"`))
-	wrapped := WithCORS(env.handlers.Router(), corsAllowed)
+	wrapped := WithCORS(env.handlers.Router(), staticOrigins(corsAllowed))
 	srv := httptest.NewServer(wrapped)
 	defer srv.Close()
 

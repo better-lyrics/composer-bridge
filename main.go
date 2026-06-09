@@ -104,9 +104,10 @@ func main() {
 		}),
 	}
 
+	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
 	br := bridge.New(holder, func() *http.Server {
 		return &http.Server{
-			Handler:           server.WithCORS(handlers.Router(), cfg.AllowedOrigins),
+			Handler:           server.WithCORS(handlers.Router(), func() []string { return a.GetConfig().AllowedOrigins }),
 			ReadHeaderTimeout: 10 * time.Second,
 			ReadTimeout:       30 * time.Second,
 			WriteTimeout:      10 * time.Minute,
@@ -137,7 +138,6 @@ func main() {
 		slog.Info("bridge update available", "version", info.Latest, "current", info.Current)
 	})
 
-	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
 	a.SetYtdlpVersionFn(getYtdlpVersion)
 	a.SetBridgeState(holder)
 	a.SetBridge(br)
