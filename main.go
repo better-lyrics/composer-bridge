@@ -34,7 +34,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-const Version = "1.1.2"
+const Version = "1.1.3"
 
 func main() {
 	dataDir := resolveDataDir()
