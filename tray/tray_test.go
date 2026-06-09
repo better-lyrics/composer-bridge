@@ -3,6 +3,8 @@ package tray
 import (
 	"context"
 	"testing"
+
+	"github.com/better-lyrics/composer-bridge/internal/bridgestate"
 )
 
 func TestNewReturnsNonNilController(t *testing.T) {
@@ -41,3 +43,24 @@ func TestContextReturnsBoundContext(t *testing.T) {
 }
 
 type ctxSentinel struct{}
+
+func TestRenderStateTitle(t *testing.T) {
+	cases := []struct {
+		name string
+		s    bridgestate.State
+		want string
+	}{
+		{"idle", bridgestate.State{Server: bridgestate.ServerRunning, Download: bridgestate.DownloadIdle}, "Idle"},
+		{"downloading", bridgestate.State{Server: bridgestate.ServerRunning, Download: bridgestate.DownloadActive, DownloadVideoID: "abc"}, "Downloading abc"},
+		{"stopped", bridgestate.State{Server: bridgestate.ServerStopped}, "Server stopped"},
+		{"starting", bridgestate.State{Server: bridgestate.ServerStarting}, "Starting..."},
+		{"stopping", bridgestate.State{Server: bridgestate.ServerStopping}, "Stopping..."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := renderStateTitle(tc.s); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

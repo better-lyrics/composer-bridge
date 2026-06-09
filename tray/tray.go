@@ -1,31 +1,52 @@
-// Package tray wires the system tray icon and its menu (Show / Quit) into the
-// Wails app. The tray runs in a background goroutine; Wails owns main. The
-// energye/systray fork is used so it cooperates with Wails's NSApplication
-// delegate on macOS via RunWithExternalLoop.
+// Package tray wires the system tray icon and its menu (live state, recent
+// downloads, server toggle, settings, quit) into the Wails app. The tray runs
+// in a background goroutine; Wails owns main. The energye/systray fork is
+// used so it cooperates with Wails's NSApplication delegate on macOS via
+// RunWithExternalLoop.
 package tray
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"runtime"
 	"sync"
 
 	"github.com/energye/systray"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/better-lyrics/composer-bridge/internal/bridgestate"
 	"github.com/better-lyrics/composer-bridge/tray/icons"
 )
+
+// RecentEntry is the slim shape the tray needs to render the Recent
+// Downloads submenu. main.go owns the conversion from internal/activity so
+// the tray package stays cycle-free.
+type RecentEntry struct {
+	VideoID string
+	Title   string
+}
+
+const recentSubmenuLimit = 5
 
 // Controller is the long-lived handle to the tray menu. Owns the runtime
 // context so menu click handlers can call WindowShow / Quit on the right app.
 // onQuit, if set, runs from the Quit menu callback BEFORE wailsRuntime.Quit so
 // the App can flip its quitting flag (see App.MarkQuitting) and OnBeforeClose
-// can let the quit proceed instead of intercepting it.
+// can let the quit proceed instead of intercepting it. onStartServer /
+// onStopServer drive the Bridge server toggle. recentDownloads supplies the
+// submenu entries. state is the bridgestate Holder used for live updates.
 type Controller struct {
-	mu     sync.Mutex
-	ctx    context.Context
-	start  func()
-	end    func()
-	onQuit func()
+	mu              sync.Mutex
+	ctx             context.Context
+	start           func()
+	end             func()
+	onQuit          func()
+	onStartServer   func() error
+	onStopServer    func() error
+	recentDownloads func() []RecentEntry
+	state           *bridgestate.Holder
+	unsubState      func()
 }
 
 // New builds an unbound Controller. Call Register before wails.Run to install
@@ -50,10 +71,68 @@ func (c *Controller) OnQuit(fn func()) {
 	c.mu.Unlock()
 }
 
+// SetState wires the bridgestate Holder used to render the live state row and
+// the server-toggle checkbox. Call before Register so onReady can subscribe.
+func (c *Controller) SetState(h *bridgestate.Holder) {
+	c.mu.Lock()
+	c.state = h
+	c.mu.Unlock()
+}
+
+// SetOnStartServer installs the callback the server-toggle uses to bring the
+// HTTP bridge back up. Returning an error logs but otherwise no-ops.
+func (c *Controller) SetOnStartServer(fn func() error) {
+	c.mu.Lock()
+	c.onStartServer = fn
+	c.mu.Unlock()
+}
+
+// SetOnStopServer installs the callback the server-toggle uses to take the
+// HTTP bridge down.
+func (c *Controller) SetOnStopServer(fn func() error) {
+	c.mu.Lock()
+	c.onStopServer = fn
+	c.mu.Unlock()
+}
+
+// SetRecentDownloads installs a callback that returns the most recent audio
+// download entries (newest first). The tray reads it lazily each time the
+// menu opens; main.go converts from internal/activity to avoid a tray ->
+// activity import cycle.
+func (c *Controller) SetRecentDownloads(fn func() []RecentEntry) {
+	c.mu.Lock()
+	c.recentDownloads = fn
+	c.mu.Unlock()
+}
+
 func (c *Controller) quitCallback() func() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.onQuit
+}
+
+func (c *Controller) startServerCallback() func() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.onStartServer
+}
+
+func (c *Controller) stopServerCallback() func() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.onStopServer
+}
+
+func (c *Controller) recentDownloadsCallback() func() []RecentEntry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.recentDownloads
+}
+
+func (c *Controller) stateHolder() *bridgestate.Holder {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.state
 }
 
 // HasContext reports whether BindContext has been called yet.
@@ -90,6 +169,13 @@ func (c *Controller) Start() {
 
 // Stop tears down the tray. Call from OnShutdown.
 func (c *Controller) Stop() {
+	c.mu.Lock()
+	unsub := c.unsubState
+	c.unsubState = nil
+	c.mu.Unlock()
+	if unsub != nil {
+		unsub()
+	}
 	if c.end != nil {
 		c.end()
 	}
@@ -105,18 +191,102 @@ func (c *Controller) onReady() {
 	}
 	systray.SetTooltip("Composer Bridge")
 
-	mShow := systray.AddMenuItem("Show Composer Bridge", "Open the window")
+	mHeader := systray.AddMenuItem("Composer Bridge", "")
+	mHeader.Disable()
+	mState := systray.AddMenuItem("Idle", "")
+	mState.Disable()
 	systray.AddSeparator()
+
+	mShow := systray.AddMenuItem("Open Composer Bridge", "Show the window")
+	applyItemIcon(mShow, icons.MenuWindow)
+
+	mRecent := systray.AddMenuItem("Recent Downloads", "Last audio downloads")
+	applyItemIcon(mRecent, icons.MenuClock)
+	c.populateRecentSubmenu(mRecent)
+
+	systray.AddSeparator()
+
+	mServer := systray.AddMenuItemCheckbox("Bridge server", "Toggle the local HTTP bridge", false)
+	applyItemIcon(mServer, icons.MenuPower)
+
+	systray.AddSeparator()
+
+	mSettings := systray.AddMenuItem("Settings...", "Open settings")
+	applyItemIcon(mSettings, icons.MenuGear)
+
 	mQuit := systray.AddMenuItem("Quit", "Stop the bridge and quit")
+	applyItemIcon(mQuit, icons.MenuX)
 
 	mShow.Click(c.showWindow)
+	mSettings.Click(c.showWindow)
+	mServer.Click(func() { c.toggleServer(mServer) })
 	mQuit.Click(c.quitApp)
+
+	if holder := c.stateHolder(); holder != nil {
+		applyState(mState, mServer, holder.Snapshot())
+		unsub := holder.OnChange(func(s bridgestate.State) {
+			applyState(mState, mServer, s)
+		})
+		c.mu.Lock()
+		c.unsubState = unsub
+		c.mu.Unlock()
+	}
 
 	// energye/systray does not auto-attach the NSMenu to the status item.
 	// Wire left-click to restore the window and right-click to open the menu
 	// (the library's ShowMenu only works inside the OnRClick callback on macOS).
 	systray.SetOnClick(func(_ systray.IMenu) { c.showWindow() })
 	systray.SetOnRClick(func(m systray.IMenu) { _ = m.ShowMenu() })
+}
+
+func (c *Controller) populateRecentSubmenu(parent *systray.MenuItem) {
+	fn := c.recentDownloadsCallback()
+	if fn == nil {
+		empty := parent.AddSubMenuItem("No recent downloads", "")
+		empty.Disable()
+		return
+	}
+	entries := fn()
+	if len(entries) > recentSubmenuLimit {
+		entries = entries[:recentSubmenuLimit]
+	}
+	if len(entries) == 0 {
+		empty := parent.AddSubMenuItem("No recent downloads", "")
+		empty.Disable()
+		return
+	}
+	for _, e := range entries {
+		label := e.Title
+		if label == "" {
+			label = e.VideoID
+		}
+		item := parent.AddSubMenuItem(label, e.VideoID)
+		applyItemIcon(item, icons.MenuDot)
+		item.Disable()
+	}
+}
+
+func (c *Controller) toggleServer(item *systray.MenuItem) {
+	holder := c.stateHolder()
+	running := false
+	if holder != nil {
+		running = holder.Snapshot().Server == bridgestate.ServerRunning
+	} else {
+		running = item.Checked()
+	}
+	if running {
+		if fn := c.stopServerCallback(); fn != nil {
+			if err := fn(); err != nil {
+				slog.Warn("tray stop server failed", "err", err)
+			}
+		}
+		return
+	}
+	if fn := c.startServerCallback(); fn != nil {
+		if err := fn(); err != nil {
+			slog.Warn("tray start server failed", "err", err)
+		}
+	}
 }
 
 func (c *Controller) showWindow() {
@@ -142,3 +312,44 @@ func (c *Controller) quitApp() {
 // onExit satisfies systray's required callback signature; no cleanup is
 // needed today because Stop owns the teardown path.
 func (c *Controller) onExit() {}
+
+// applyItemIcon picks SetTemplateIcon on macOS so the OS tints menu icons
+// per appearance, and SetIcon elsewhere so other platforms render the
+// fixed-color PNG directly.
+func applyItemIcon(item *systray.MenuItem, data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	if runtime.GOOS == "darwin" {
+		item.SetTemplateIcon(data, data)
+		return
+	}
+	item.SetIcon(data)
+}
+
+// applyState pushes the latest bridgestate snapshot into the menu: refreshes
+// the state title and syncs the server-toggle's checkbox.
+func applyState(stateItem, serverItem *systray.MenuItem, s bridgestate.State) {
+	stateItem.SetTitle(renderStateTitle(s))
+	if s.Server == bridgestate.ServerRunning {
+		serverItem.Check()
+	} else {
+		serverItem.Uncheck()
+	}
+}
+
+func renderStateTitle(s bridgestate.State) string {
+	if s.Server == bridgestate.ServerStopped {
+		return "Server stopped"
+	}
+	if s.Server == bridgestate.ServerStarting {
+		return "Starting..."
+	}
+	if s.Server == bridgestate.ServerStopping {
+		return "Stopping..."
+	}
+	if s.Download == bridgestate.DownloadActive && s.DownloadVideoID != "" {
+		return fmt.Sprintf("Downloading %s", s.DownloadVideoID)
+	}
+	return "Idle"
+}

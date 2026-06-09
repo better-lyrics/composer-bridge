@@ -155,6 +155,24 @@ func main() {
 	}
 
 	trayCtrl := tray.New()
+	trayCtrl.SetState(holder)
+	trayCtrl.SetOnStartServer(a.StartServer)
+	trayCtrl.SetOnStopServer(a.StopServer)
+	trayCtrl.SetRecentDownloads(func() []tray.RecentEntry {
+		entries, err := act.Recent(5)
+		if err != nil {
+			slog.Warn("tray recent downloads failed", "err", err)
+			return nil
+		}
+		out := make([]tray.RecentEntry, 0, len(entries))
+		for _, e := range entries {
+			if e.Kind != activity.KindAudioDownload {
+				continue
+			}
+			out = append(out, tray.RecentEntry{VideoID: e.VideoID})
+		}
+		return out
+	})
 	trayCtrl.Register()
 
 	err = wails.Run(&options.App{
