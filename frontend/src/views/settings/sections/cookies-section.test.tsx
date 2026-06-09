@@ -60,15 +60,16 @@ describe("CookiesSection", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("false");
   });
 
-  it("typing in the textarea and clicking Upload calls UploadCookies with the typed content", async () => {
+  it("typing in the textarea fallback and clicking Upload calls UploadCookies with the typed content", async () => {
     bindings.CookiesState.mockResolvedValue(cookiesStatus({ present: false }));
     render(<CookiesSection />);
     await waitFor(() =>
       expect(screen.getByText(/No cookies uploaded/i)).toBeInTheDocument(),
     );
+    fireEvent.click(screen.getByText(/Or paste contents/i));
     const textarea = screen.getByLabelText(/Cookies file contents/i) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "# Netscape\nfoo bar" } });
-    fireEvent.click(screen.getByRole("button", { name: /Upload/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Upload$/i }));
     await waitFor(() =>
       expect(bindings.UploadCookies).toHaveBeenCalledWith("# Netscape\nfoo bar"),
     );
@@ -81,12 +82,43 @@ describe("CookiesSection", () => {
     await waitFor(() =>
       expect(screen.getByText(/No cookies uploaded/i)).toBeInTheDocument(),
     );
+    fireEvent.click(screen.getByText(/Or paste contents/i));
     const textarea = screen.getByLabelText(/Cookies file contents/i) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "garbage" } });
-    fireEvent.click(screen.getByRole("button", { name: /Upload/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Upload$/i }));
     await waitFor(() =>
       expect(screen.getByText(/invalid Netscape header/i)).toBeInTheDocument(),
     );
+  });
+
+  it("dropping a file calls UploadCookies with its contents", async () => {
+    bindings.CookiesState.mockResolvedValue(cookiesStatus({ present: false }));
+    render(<CookiesSection />);
+    await waitFor(() =>
+      expect(screen.getByText(/No cookies uploaded/i)).toBeInTheDocument(),
+    );
+    const dropzone = screen.getByLabelText("Upload cookies file");
+    const file = new File(["# Netscape HTTP Cookie File\n"], "cookies.txt", { type: "text/plain" });
+    fireEvent.drop(dropzone, { dataTransfer: { files: [file] } });
+    await waitFor(() => {
+      expect(bindings.UploadCookies).toHaveBeenCalledWith("# Netscape HTTP Cookie File\n");
+    });
+  });
+
+  it("selecting a JSON file via the input also calls UploadCookies", async () => {
+    bindings.CookiesState.mockResolvedValue(cookiesStatus({ present: false }));
+    render(<CookiesSection />);
+    await waitFor(() =>
+      expect(screen.getByText(/No cookies uploaded/i)).toBeInTheDocument(),
+    );
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const json = '[{"domain":".youtube.com","name":"SID","value":"x","path":"/"}]';
+    const file = new File([json], "cookies.json", { type: "application/json" });
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    fireEvent.change(input);
+    await waitFor(() => {
+      expect(bindings.UploadCookies).toHaveBeenCalledWith(json);
+    });
   });
 
   it("toggle off calls SetCookiesEnabled(false)", async () => {

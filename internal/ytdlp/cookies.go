@@ -3,6 +3,7 @@ package ytdlp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -29,15 +30,22 @@ func HasCookies(dataDir string) bool {
 }
 
 // SaveCookies writes content to <dataDir>/cookies.txt atomically. Rejects
-// empty input and content that doesn't look like a Netscape cookies file.
-// Detection is intentionally loose: we want to catch the user pasting JSON
-// from a browser extension, but not be brittle against minor format variants.
+// empty input and content that isn't either a Netscape cookies file or a
+// browser-extension JSON export. JSON input is converted to Netscape on the
+// way to disk because yt-dlp hard-rejects JSON cookies files.
 func SaveCookies(dataDir, content string) error {
 	if strings.TrimSpace(content) == "" {
 		return errors.New("cookies file is empty")
 	}
+	if looksLikeJSON(content) {
+		converted, err := convertJSONToNetscape(content)
+		if err != nil {
+			return fmt.Errorf("converting JSON cookies to Netscape: %w", err)
+		}
+		content = converted
+	}
 	if !looksLikeNetscape(content) {
-		return errors.New("cookies file is not in Netscape format (use \"Get cookies.txt LOCALLY\" or similar; JSON exports are not supported)")
+		return errors.New("cookies file is not in Netscape or JSON format (export from Get cookies.txt LOCALLY, Cookie-Editor, or similar)")
 	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir data dir: %w", err)
@@ -138,6 +146,82 @@ func VerifyCookies(ctx context.Context, ytdlpPath, cookiesPath string) (VerifyRe
 		res.Detail = "The cookies have expired or been rotated. Export a fresh cookies.txt from a signed-in browser session."
 	}
 	return res, nil
+}
+
+// looksLikeJSON returns true when content's first non-whitespace character is
+// "[" or "{", indicating a browser-extension JSON cookie export.
+func looksLikeJSON(content string) bool {
+	trimmed := strings.TrimLeft(content, " \t\n\r")
+	if trimmed == "" {
+		return false
+	}
+	c := trimmed[0]
+	return c == '[' || c == '{'
+}
+
+// jsonCookie matches the shape browser extensions emit. Fields we don't use
+// (sameSite, httpOnly, storeId, hostOnly, etc.) are intentionally ignored.
+type jsonCookie struct {
+	Domain         string  `json:"domain"`
+	Name           string  `json:"name"`
+	Value          string  `json:"value"`
+	Path           string  `json:"path"`
+	Secure         bool    `json:"secure"`
+	ExpirationDate float64 `json:"expirationDate"`
+	Session        bool    `json:"session"`
+}
+
+// convertJSONToNetscape parses a JSON cookie export and emits the equivalent
+// Netscape cookies.txt content that yt-dlp's parser accepts. Session cookies
+// (no expirationDate or session=true) are emitted with expiry 0, matching
+// what the browser does at session end.
+func convertJSONToNetscape(content string) (string, error) {
+	var cookies []jsonCookie
+	if err := json.Unmarshal([]byte(content), &cookies); err != nil {
+		// Some extensions wrap the array in a top-level object.
+		var wrapped struct {
+			Cookies []jsonCookie `json:"cookies"`
+		}
+		if err2 := json.Unmarshal([]byte(content), &wrapped); err2 != nil || wrapped.Cookies == nil {
+			return "", fmt.Errorf("parse JSON cookies: %w", err)
+		}
+		cookies = wrapped.Cookies
+	}
+	if len(cookies) == 0 {
+		return "", errors.New("JSON cookies file is empty")
+	}
+	var b strings.Builder
+	b.WriteString("# Netscape HTTP Cookie File\n")
+	b.WriteString("# Auto-converted from JSON by composer-bridge.\n")
+	written := 0
+	for _, c := range cookies {
+		if c.Domain == "" || c.Name == "" {
+			continue
+		}
+		includeSubdomains := "FALSE"
+		if strings.HasPrefix(c.Domain, ".") {
+			includeSubdomains = "TRUE"
+		}
+		path := c.Path
+		if path == "" {
+			path = "/"
+		}
+		secure := "FALSE"
+		if c.Secure {
+			secure = "TRUE"
+		}
+		var expiry int64
+		if !c.Session && c.ExpirationDate > 0 {
+			expiry = int64(c.ExpirationDate)
+		}
+		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+			c.Domain, includeSubdomains, path, secure, expiry, c.Name, c.Value)
+		written++
+	}
+	if written == 0 {
+		return "", errors.New("JSON cookies file contained no usable entries")
+	}
+	return b.String(), nil
 }
 
 // looksLikeNetscape recognises the canonical Netscape cookies.txt header

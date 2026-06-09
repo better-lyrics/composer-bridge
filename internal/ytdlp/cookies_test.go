@@ -48,11 +48,129 @@ func TestSaveCookies_RejectsNonNetscape(t *testing.T) {
 	}
 }
 
-func TestSaveCookies_RejectsJSON(t *testing.T) {
+func TestSaveCookies_AcceptsAndConvertsJSON(t *testing.T) {
 	dir := t.TempDir()
-	err := SaveCookies(dir, `[{"name": "SID", "value": "foo"}]`)
+	jsonContent := `[{"domain":".youtube.com","name":"SID","value":"x","path":"/","secure":true,"expirationDate":1000}]`
+	if err := SaveCookies(dir, jsonContent); err != nil {
+		t.Fatalf("SaveCookies(JSON): want nil, got %v", err)
+	}
+	if !HasCookies(dir) {
+		t.Fatalf("file should be written after JSON conversion")
+	}
+}
+
+func TestSaveCookies_JSONRoundTripsAllFields(t *testing.T) {
+	dir := t.TempDir()
+	jsonContent := `[
+		{"domain":".youtube.com","name":"SID","value":"abc123","path":"/","secure":true,"expirationDate":1893456000.5},
+		{"domain":".youtube.com","name":"LOGIN_INFO","value":"AFmmF2","path":"/","secure":true,"expirationDate":1893456000}
+	]`
+	if err := SaveCookies(dir, jsonContent); err != nil {
+		t.Fatalf("SaveCookies: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "cookies.txt"))
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	str := string(got)
+	if !strings.HasPrefix(str, "# Netscape HTTP Cookie File\n") {
+		t.Errorf("missing Netscape header: %q", str)
+	}
+	if !strings.Contains(str, ".youtube.com\tTRUE\t/\tTRUE\t1893456000\tSID\tabc123") {
+		t.Errorf("missing SID line in: %s", str)
+	}
+	if !strings.Contains(str, ".youtube.com\tTRUE\t/\tTRUE\t1893456000\tLOGIN_INFO\tAFmmF2") {
+		t.Errorf("missing LOGIN_INFO line in: %s", str)
+	}
+}
+
+func TestSaveCookies_JSONObjectWrapper(t *testing.T) {
+	dir := t.TempDir()
+	jsonContent := `{
+		"cookies": [
+			{"domain":".youtube.com","name":"SID","value":"x","path":"/","secure":true,"expirationDate":9999999999}
+		]
+	}`
+	if err := SaveCookies(dir, jsonContent); err != nil {
+		t.Fatalf("SaveCookies(wrapper): %v", err)
+	}
+}
+
+func TestSaveCookies_JSONSessionCookieGetsZeroExpiry(t *testing.T) {
+	dir := t.TempDir()
+	jsonContent := `[
+		{"domain":".youtube.com","name":"SESS","value":"tmp","path":"/","secure":true,"session":true}
+	]`
+	if err := SaveCookies(dir, jsonContent); err != nil {
+		t.Fatalf("SaveCookies(session): %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "cookies.txt"))
+	if !strings.Contains(string(got), ".youtube.com\tTRUE\t/\tTRUE\t0\tSESS\ttmp") {
+		t.Errorf("session cookie should have expiry 0, got %s", got)
+	}
+}
+
+func TestSaveCookies_JSONEmptyArrayRejected(t *testing.T) {
+	dir := t.TempDir()
+	err := SaveCookies(dir, "[]")
+	if err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("empty JSON array: want error mentioning empty, got %v", err)
+	}
+}
+
+func TestSaveCookies_JSONNoUsableEntries(t *testing.T) {
+	dir := t.TempDir()
+	jsonContent := `[
+		{"domain":"","name":"X","value":"y","path":"/"},
+		{"domain":".youtube.com","name":"","value":"y","path":"/"}
+	]`
+	err := SaveCookies(dir, jsonContent)
+	if err == nil || !strings.Contains(err.Error(), "usable") {
+		t.Fatalf("only invalid entries: want error mentioning usable, got %v", err)
+	}
+}
+
+func TestSaveCookies_MalformedJSONRejected(t *testing.T) {
+	dir := t.TempDir()
+	err := SaveCookies(dir, "{not valid json")
 	if err == nil {
-		t.Fatalf("SaveCookies JSON: want error, got nil")
+		t.Fatalf("malformed JSON: want error")
+	}
+}
+
+func TestSaveCookies_JSONSkipsCookiesWithoutDomainOrName(t *testing.T) {
+	dir := t.TempDir()
+	jsonContent := `[
+		{"domain":"","name":"X","value":"y","path":"/","secure":true,"expirationDate":1},
+		{"domain":".youtube.com","name":"","value":"y","path":"/","secure":true,"expirationDate":1},
+		{"domain":".youtube.com","name":"OK","value":"y","path":"/","secure":true,"expirationDate":1}
+	]`
+	if err := SaveCookies(dir, jsonContent); err != nil {
+		t.Fatalf("SaveCookies: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "cookies.txt"))
+	if !strings.Contains(string(got), "\tOK\ty") {
+		t.Errorf("valid cookie was dropped: %s", got)
+	}
+}
+
+func TestLooksLikeJSON(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"[", true},
+		{"  \n  [{}]", true},
+		{`{"a":1}`, true},
+		{"# Netscape HTTP Cookie File", false},
+		{"", false},
+		{"  ", false},
+		{".domain\tTRUE\t/\tTRUE\t0\tname\tvalue", false},
+	}
+	for _, tc := range cases {
+		if got := looksLikeJSON(tc.in); got != tc.want {
+			t.Errorf("looksLikeJSON(%q) = %v, want %v", tc.in, got, tc.want)
+		}
 	}
 }
 
