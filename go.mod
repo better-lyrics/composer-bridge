@@ -5,6 +5,8 @@ go 1.25.0
 require (
 	github.com/energye/systray v1.0.3
 	github.com/minio/selfupdate v0.6.0
+	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c
+	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef
 	github.com/wailsapp/wails/v2 v2.10.1
 	golang.org/x/image v0.42.0
 	golang.org/x/mod v0.36.0
