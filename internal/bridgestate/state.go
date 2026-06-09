@@ -35,9 +35,13 @@ type State struct {
 
 // Holder guards a State with an RWMutex so reads and writes can happen
 // from multiple goroutines safely.
+// Always construct via NewHolder; the zero value is not safe to use.
 type Holder struct {
-	mu    sync.RWMutex
-	state State
+	mu      sync.RWMutex
+	state   State
+	subsMu  sync.Mutex
+	subs    map[int]func(State)
+	nextSub int
 }
 
 // NewHolder returns a Holder initialised with the default state:
@@ -61,18 +65,22 @@ func (h *Holder) Snapshot() State {
 // SetServer swaps in a new server status and returns the previous one.
 func (h *Holder) SetServer(s ServerStatus) ServerStatus {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	prev := h.state.Server
 	h.state.Server = s
+	snap := h.state
+	h.mu.Unlock()
+	h.notify(snap)
 	return prev
 }
 
 // StartDownload marks a download as active and records its video ID.
 func (h *Holder) StartDownload(videoID string) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.state.Download = DownloadActive
 	h.state.DownloadVideoID = videoID
+	snap := h.state
+	h.mu.Unlock()
+	h.notify(snap)
 }
 
 // EndDownload resets the download to idle and clears the video ID. When
@@ -80,10 +88,42 @@ func (h *Holder) StartDownload(videoID string) {
 // can surface it in the UI.
 func (h *Holder) EndDownload(errMsg string) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.state.Download = DownloadIdle
 	h.state.DownloadVideoID = ""
 	if errMsg != "" {
 		h.state.LastError = errMsg
+	}
+	snap := h.state
+	h.mu.Unlock()
+	h.notify(snap)
+}
+
+// OnChange registers fn to receive every subsequent state snapshot.
+// The returned func unsubscribes; safe to call from the callback.
+func (h *Holder) OnChange(fn func(State)) func() {
+	h.subsMu.Lock()
+	if h.subs == nil {
+		h.subs = make(map[int]func(State))
+	}
+	id := h.nextSub
+	h.nextSub++
+	h.subs[id] = fn
+	h.subsMu.Unlock()
+	return func() {
+		h.subsMu.Lock()
+		delete(h.subs, id)
+		h.subsMu.Unlock()
+	}
+}
+
+func (h *Holder) notify(snap State) {
+	h.subsMu.Lock()
+	subs := make([]func(State), 0, len(h.subs))
+	for _, fn := range h.subs {
+		subs = append(subs, fn)
+	}
+	h.subsMu.Unlock()
+	for _, fn := range subs {
+		fn(snap)
 	}
 }

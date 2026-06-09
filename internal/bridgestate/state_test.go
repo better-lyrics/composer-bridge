@@ -69,3 +69,83 @@ func TestEndDownload_WithErrorMessageStoresIt(t *testing.T) {
 		t.Errorf("LastError: got %q, want yt-dlp exit 1", s.LastError)
 	}
 }
+
+func TestOnChange_FiresAfterStartDownload(t *testing.T) {
+	h := NewHolder()
+	got := make(chan State, 1)
+	unsub := h.OnChange(func(s State) { got <- s })
+	t.Cleanup(unsub)
+
+	h.StartDownload("vid")
+
+	select {
+	case s := <-got:
+		if s.Download != DownloadActive || s.DownloadVideoID != "vid" {
+			t.Errorf("emitted state: %+v", s)
+		}
+	default:
+		t.Fatal("subscriber was not called")
+	}
+}
+
+func TestOnChange_FiresAfterSetServer(t *testing.T) {
+	h := NewHolder()
+	var calls int
+	unsub := h.OnChange(func(_ State) { calls++ })
+	t.Cleanup(unsub)
+	h.SetServer(ServerRunning)
+	if calls != 1 {
+		t.Errorf("calls: got %d, want 1", calls)
+	}
+}
+
+func TestOnChange_UnsubscribeStopsFurtherCalls(t *testing.T) {
+	h := NewHolder()
+	var calls int
+	unsub := h.OnChange(func(_ State) { calls++ })
+	unsub()
+	h.SetServer(ServerRunning)
+	if calls != 0 {
+		t.Errorf("calls after unsub: got %d, want 0", calls)
+	}
+}
+
+func TestOnChange_MultipleSubscribersAllFire(t *testing.T) {
+	h := NewHolder()
+	var a, b int
+	t.Cleanup(h.OnChange(func(_ State) { a++ }))
+	t.Cleanup(h.OnChange(func(_ State) { b++ }))
+	h.SetServer(ServerRunning)
+	if a != 1 || b != 1 {
+		t.Errorf("a=%d b=%d, want 1 1", a, b)
+	}
+}
+
+func TestOnChange_SubscriberCanCallHolderMethodsWithoutDeadlock(t *testing.T) {
+	h := NewHolder()
+	var snap State
+	t.Cleanup(h.OnChange(func(_ State) {
+		snap = h.Snapshot()
+	}))
+	h.SetServer(ServerRunning)
+	if snap.Server != ServerRunning {
+		t.Errorf("re-entrant Snapshot inside subscriber: got %q, want %q", snap.Server, ServerRunning)
+	}
+}
+
+func TestHolder_ConcurrentMutationsAreRaceFree(t *testing.T) {
+	h := NewHolder()
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 100; i++ {
+			h.SetServer(ServerRunning)
+		}
+		close(done)
+	}()
+	for i := 0; i < 100; i++ {
+		h.StartDownload("v")
+		h.EndDownload("")
+		_ = h.Snapshot()
+	}
+	<-done
+}
