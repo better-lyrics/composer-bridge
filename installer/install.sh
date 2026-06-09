@@ -201,7 +201,8 @@ install_macos() {
     require_cmd hdiutil
     require_cmd xattr
 
-    APP_NAME="Composer Bridge.app"
+    SRC_APP_NAME="composer-bridge.app"
+    DEST_APP_NAME="Composer Bridge.app"
     MOUNT_POINT="$TMPDIR_ROOT/mnt"
     mkdir -p "$MOUNT_POINT"
 
@@ -211,17 +212,20 @@ install_macos() {
         exit 4
     fi
 
-    if [ ! -d "$MOUNT_POINT/$APP_NAME" ]; then
-        err "$APP_NAME not found inside dmg"
+    if [ ! -d "$MOUNT_POINT/$SRC_APP_NAME" ]; then
+        err "$SRC_APP_NAME not found inside dmg"
         hdiutil detach "$MOUNT_POINT" -quiet || true
         exit 4
     fi
 
-    log "copying to /Applications"
-    if [ -d "/Applications/$APP_NAME" ]; then
-        rm -rf "/Applications/$APP_NAME"
+    log "copying to /Applications/$DEST_APP_NAME"
+    if [ -d "/Applications/$DEST_APP_NAME" ]; then
+        rm -rf "/Applications/$DEST_APP_NAME"
     fi
-    if ! cp -R "$MOUNT_POINT/$APP_NAME" "/Applications/"; then
+    if [ -d "/Applications/$SRC_APP_NAME" ]; then
+        rm -rf "/Applications/$SRC_APP_NAME"
+    fi
+    if ! cp -R "$MOUNT_POINT/$SRC_APP_NAME" "/Applications/$DEST_APP_NAME"; then
         err "copy to /Applications failed (try with sudo if you hit permissions)"
         hdiutil detach "$MOUNT_POINT" -quiet || true
         exit 4
@@ -231,9 +235,9 @@ install_macos() {
     hdiutil detach "$MOUNT_POINT" -quiet || true
 
     log "clearing Gatekeeper quarantine flag"
-    xattr -d com.apple.quarantine "/Applications/$APP_NAME" >/dev/null 2>&1 || true
+    xattr -d com.apple.quarantine "/Applications/$DEST_APP_NAME" >/dev/null 2>&1 || true
 
-    INSTALLED_PATH="/Applications/$APP_NAME"
+    INSTALLED_PATH="/Applications/$DEST_APP_NAME"
 }
 
 install_linux() {
