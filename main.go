@@ -34,7 +34,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-const Version = "1.1.1"
+const Version = "1.1.2"
 
 func main() {
 	dataDir := resolveDataDir()
@@ -54,7 +54,7 @@ func main() {
 		slog.SetDefault(slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{Level: parseLogLevel(cfg.LogLevel)})))
 	}
 
-	ytdlpPath, err := ytdlp.Ensure(dataDir)
+	ytdlpPath, err := bootstrapYtdlp(dataDir)
 	if err != nil {
 		fatal("ensure yt-dlp: %v", err)
 	}
@@ -132,7 +132,7 @@ func main() {
 
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
-	go ytdlp.RefreshDaily(bgCtx, dataDir)
+	scheduleYtdlpRefresh(bgCtx, dataDir)
 	go updater.PollDaily(bgCtx, updater.DefaultManifestURL, Version, func(info updater.UpdateInfo) {
 		slog.Info("bridge update available", "version", info.Latest, "current", info.Current)
 	})
