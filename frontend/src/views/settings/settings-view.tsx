@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BridgeVersion, YtdlpVersion } from "../../../wailsjs/go/app/App";
 import { useConfig } from "@/hooks/use-config";
 import { BehaviorSection } from "@/views/settings/sections/behavior-section";
+import { CookiesSection } from "@/views/settings/sections/cookies-section";
 import { DiagnosticsSection } from "@/views/settings/sections/diagnostics-section";
 import { NetworkingSection } from "@/views/settings/sections/networking-section";
 import { ServerSection } from "@/views/settings/sections/server-section";
@@ -68,6 +69,7 @@ const SettingsView: React.FC = () => {
             ytdlpVersion={ytdlpVersion}
             update={update}
           />
+          <CookiesSection />
           <StorageSection config={config} update={update} />
           <BehaviorSection config={config} update={update} />
           <DiagnosticsSection config={config} update={update} />

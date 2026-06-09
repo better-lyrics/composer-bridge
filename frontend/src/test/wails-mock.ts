@@ -1,5 +1,5 @@
 import { vi, type Mock } from "vitest";
-import type { activity, bridgestate, config, library } from "../../wailsjs/go/models";
+import type { activity, app, bridgestate, config, library, ytdlp } from "../../wailsjs/go/models";
 
 // AppBindings mirrors the auto-generated wailsjs/go/app/App.d.ts surface.
 // All fields are vi.fn() so tests can assert call shape and override returns.
@@ -24,6 +24,11 @@ export interface AppBindings {
   BridgeStatus: Mock<() => Promise<bridgestate.State>>;
   StartServer: Mock<() => Promise<void>>;
   StopServer: Mock<() => Promise<void>>;
+  UploadCookies: Mock<(content: string) => Promise<void>>;
+  RemoveCookies: Mock<() => Promise<void>>;
+  CookiesState: Mock<() => Promise<app.CookiesStatus>>;
+  SetCookiesEnabled: Mock<(enabled: boolean) => Promise<void>>;
+  VerifyCookies: Mock<() => Promise<ytdlp.VerifyResult>>;
 }
 
 const DEFAULT_CONFIG = {
@@ -95,6 +100,20 @@ export function setupWailsMock(overrides: Partial<AppBindings> = {}): AppBinding
     } as bridgestate.State),
     StartServer: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     StopServer: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    UploadCookies: vi.fn<(content: string) => Promise<void>>().mockResolvedValue(undefined),
+    RemoveCookies: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    CookiesState: vi.fn<() => Promise<app.CookiesStatus>>().mockResolvedValue({
+      present: false,
+      enabled: false,
+      path: "/Users/test/.composer-bridge/cookies.txt",
+    } as app.CookiesStatus),
+    SetCookiesEnabled: vi.fn<(enabled: boolean) => Promise<void>>().mockResolvedValue(undefined),
+    VerifyCookies: vi.fn<() => Promise<ytdlp.VerifyResult>>().mockResolvedValue({
+      loaded: false,
+      authenticated: false,
+      rotated: false,
+      detail: "",
+    } as ytdlp.VerifyResult),
     ...overrides,
   };
   (window as unknown as { go: { app: { App: AppBindings } } }).go = {
