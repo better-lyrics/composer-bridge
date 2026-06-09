@@ -31,7 +31,7 @@ type icon struct {
 // glyph rendered into a centered region of that canvas so the icon looks
 // smaller in the menu without losing rasterization resolution.
 const canvasSize = 36
-const glyphSize = 34
+const glyphSize = 32
 
 func main() {
 	icons := []icon{
