@@ -168,6 +168,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Derive version
         id: version
@@ -179,6 +181,33 @@ jobs:
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Generate changelog
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          PREV_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          if [ -z "$PREV_TAG" ]; then
+            RANGE="$TAG"
+            HEADING="## Initial release"
+          else
+            RANGE="${PREV_TAG}..${TAG}"
+            HEADING="## Changes since ${PREV_TAG}"
+          fi
+          mkdir -p release
+          {
+            echo "$HEADING"
+            echo
+            git log "$RANGE" --pretty=format:'- %s (%h)' --no-merges
+            echo
+            if [ -n "$PREV_TAG" ]; then
+              echo
+              echo "**Full diff:** https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${TAG}"
+            fi
+          } > release/CHANGELOG.md
+          echo "--- generated CHANGELOG.md ---"
+          cat release/CHANGELOG.md
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -289,7 +318,7 @@ jobs:
           LINUX_SHA="$(sha256sum "release/$LINUX_ASSET" | awk '{print $1}')"
           WIN_SHA="$(sha256sum "release/$WIN_ASSET" | awk '{print $1}')"
 
-          NOTES="$(git tag -l --format='%(contents)' "$TAG" 2>/dev/null || echo "")"
+          NOTES="$(cat release/CHANGELOG.md)"
 
           jq -n \
             --arg version "$VERSION" \
@@ -351,14 +380,15 @@ jobs:
       - name: List release assets
         run: ls -la release/
 
-      - name: Extract tag annotation
+      - name: Extract release notes
         id: notes
         run: |
           {
             echo "body<<EOF"
-            git tag -l --format='%(contents)' "${GITHUB_REF_NAME}"
+            cat release/CHANGELOG.md
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+          rm release/CHANGELOG.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
