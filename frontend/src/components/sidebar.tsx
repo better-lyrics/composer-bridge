@@ -26,13 +26,19 @@ const Sidebar: React.FC = () => {
 
   return (
     <aside className="flex h-full w-52 shrink-0 flex-col border-r border-composer-border bg-composer-bg select-none">
-      <div className="flex items-center gap-2 px-4 pt-14 pb-4 [-webkit-app-region:drag]">
+      <div
+        className="flex items-center gap-2 px-4 pt-14 pb-4"
+        style={{ "--wails-draggable": "drag" } as React.CSSProperties}
+      >
         <BetterLyricsLogo size={20} />
         <span className="text-sm font-semibold tracking-tight text-composer-text">
           Composer Bridge
         </span>
       </div>
-      <nav className="flex flex-1 flex-col gap-1 px-2 py-2 [-webkit-app-region:no-drag]">
+      <nav
+        className="flex flex-1 flex-col gap-1 px-2 py-2"
+        style={{ "--wails-draggable": "no-drag" } as React.CSSProperties}
+      >
         {NAV_ITEMS.map(({ id, label, Icon }) => {
           const active = view === id;
           return (
@@ -54,7 +60,10 @@ const Sidebar: React.FC = () => {
           );
         })}
       </nav>
-      <div className="mt-auto px-2 pb-3 [-webkit-app-region:no-drag]">
+      <div
+        className="mt-auto px-2 pb-3"
+        style={{ "--wails-draggable": "no-drag" } as React.CSSProperties}
+      >
         <SidebarStatus />
       </div>
     </aside>

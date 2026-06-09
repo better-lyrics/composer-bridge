@@ -47,14 +47,20 @@ const LibraryView: React.FC = () => {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-composer-border bg-composer-bg px-6 py-4">
+      <header
+        className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-composer-border bg-composer-bg px-6 py-4"
+        style={{ "--wails-draggable": "drag" } as React.CSSProperties}
+      >
         <div className="flex flex-col gap-0.5">
           <h1 className="text-xl font-semibold tracking-tight text-composer-text">Library</h1>
           <span className="text-xs text-composer-text-muted">
             {tracks.length} {tracks.length === 1 ? "track" : "tracks"}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div
+          className="flex items-center gap-2"
+          style={{ "--wails-draggable": "no-drag" } as React.CSSProperties}
+        >
           <div className="relative">
             <IconSearch
               size={14}

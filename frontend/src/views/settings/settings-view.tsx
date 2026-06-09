@@ -46,7 +46,10 @@ const SettingsView: React.FC = () => {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-composer-border bg-composer-bg px-6 py-4">
+      <header
+        className="sticky top-0 z-10 flex items-center justify-between border-b border-composer-border bg-composer-bg px-6 py-4"
+        style={{ "--wails-draggable": "drag" } as React.CSSProperties}
+      >
         <div className="flex flex-col gap-0.5">
           <h1 className="text-xl font-semibold tracking-tight text-composer-text">Settings</h1>
           <span className="text-xs text-composer-text-muted">Saved automatically</span>

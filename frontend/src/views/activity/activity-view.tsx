@@ -28,14 +28,19 @@ const ActivityView: React.FC = () => {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-composer-border bg-composer-bg px-6 py-4">
+      <header
+        className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-composer-border bg-composer-bg px-6 py-4"
+        style={{ "--wails-draggable": "drag" } as React.CSSProperties}
+      >
         <div className="flex flex-col gap-0.5">
           <h1 className="text-xl font-semibold tracking-tight text-composer-text">Activity</h1>
           <span className="text-xs text-composer-text-muted">
             {sorted.length} {sorted.length === 1 ? "entry" : "entries"}
           </span>
         </div>
-        <Select value={limit} onChange={setLimit} options={LIMIT_OPTIONS} ariaLabel="Activity limit" />
+        <div style={{ "--wails-draggable": "no-drag" } as React.CSSProperties}>
+          <Select value={limit} onChange={setLimit} options={LIMIT_OPTIONS} ariaLabel="Activity limit" />
+        </div>
       </header>
       <div className="flex-1 overflow-auto px-6 py-6">
         {!loaded ? null : sorted.length === 0 ? (
