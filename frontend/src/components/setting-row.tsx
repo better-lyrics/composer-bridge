@@ -18,9 +18,7 @@ const SettingRow: React.FC<SettingRowProps> = ({ label, description, disabled, c
     <div className="flex items-start justify-between gap-6">
       <div className="flex max-w-md flex-col gap-0.5">
         <span className="text-sm font-medium text-composer-text">{label}</span>
-        {description && (
-          <span className="select-text text-xs text-composer-text-muted">{description}</span>
-        )}
+        {description && <span className="text-xs text-composer-text-muted">{description}</span>}
         {disabled && (
           <span className="text-xs text-composer-text-faint italic">{DISABLED_FOOTNOTE}</span>
         )}
