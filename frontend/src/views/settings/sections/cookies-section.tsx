@@ -250,7 +250,7 @@ const CookiesSection: React.FC = () => {
       <h2 className="mb-1 text-xs font-medium tracking-wide text-composer-text-muted">
         Cookies
       </h2>
-      <div className="mb-3 flex flex-col gap-2 rounded-md border border-composer-border bg-composer-input px-3 py-3 text-xs text-composer-text-muted">
+      <div className="mb-3 flex select-text flex-col gap-2 rounded-md border border-composer-border bg-composer-input px-3 py-3 text-xs text-composer-text-muted">
         <div className="flex flex-col gap-1">
           <h3 className="text-xs font-medium text-composer-text">Why upload cookies</h3>
           <p>
