@@ -3,13 +3,17 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/better-lyrics/composer-bridge/internal/activity"
+	"github.com/better-lyrics/composer-bridge/internal/bridge"
+	"github.com/better-lyrics/composer-bridge/internal/bridgestate"
 	"github.com/better-lyrics/composer-bridge/internal/config"
 	"github.com/better-lyrics/composer-bridge/internal/library"
 )
@@ -377,5 +381,142 @@ func TestSupportsAutostartIsTrueOnDarwinLinuxWindows(t *testing.T) {
 	a, _, _, _ := newTestApp(t)
 	if !a.SupportsAutostart() {
 		t.Errorf("SupportsAutostart should be true now that all 3 platforms implement it")
+	}
+}
+
+// newAppWithStateAndBridge wraps the standard newTestApp with a fresh holder
+// and a *bridge.Bridge whose build constructor returns a no-op server. Used
+// by the BridgeStatus/StartServer/StopServer tests.
+func newAppWithStateAndBridge(t *testing.T) (*App, *bridgestate.Holder, *bridge.Bridge) {
+	t.Helper()
+	a, _, _, _ := newTestApp(t)
+	holder := bridgestate.NewHolder()
+	br := bridge.New(holder, func() *http.Server {
+		return &http.Server{Handler: http.NewServeMux()}
+	})
+	a.SetBridgeState(holder)
+	a.SetBridge(br)
+	t.Cleanup(func() { _ = br.Stop() })
+	return a, holder, br
+}
+
+func TestBridgeStatus_ReturnsCurrentSnapshot(t *testing.T) {
+	a, holder, _ := newAppWithStateAndBridge(t)
+	holder.SetServer(bridgestate.ServerRunning)
+	got := a.BridgeStatus()
+	if got.Server != bridgestate.ServerRunning {
+		t.Errorf("Server: got %q, want %q", got.Server, bridgestate.ServerRunning)
+	}
+}
+
+func TestStartServer_FlipsHolderToRunning(t *testing.T) {
+	a, holder, _ := newAppWithStateAndBridge(t)
+	if err := a.StartServer(); err != nil {
+		t.Fatalf("StartServer: %v", err)
+	}
+	if got := holder.Snapshot().Server; got != bridgestate.ServerRunning {
+		t.Errorf("Server: got %q, want %q", got, bridgestate.ServerRunning)
+	}
+}
+
+func TestStopServer_FlipsHolderToStopped(t *testing.T) {
+	a, holder, _ := newAppWithStateAndBridge(t)
+	_ = a.StartServer()
+	if err := a.StopServer(); err != nil {
+		t.Fatalf("StopServer: %v", err)
+	}
+	if got := holder.Snapshot().Server; got != bridgestate.ServerStopped {
+		t.Errorf("Server: got %q, want %q", got, bridgestate.ServerStopped)
+	}
+}
+
+func TestStartServer_PersistsServerEnabledTrue(t *testing.T) {
+	a, _, _ := newAppWithStateAndBridge(t)
+	if err := a.StartServer(); err != nil {
+		t.Fatalf("StartServer: %v", err)
+	}
+	reloaded, err := config.Load(a.cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if !reloaded.ServerEnabled {
+		t.Errorf("ServerEnabled after Start: got false, want true")
+	}
+}
+
+func TestStopServer_PersistsServerEnabledFalse(t *testing.T) {
+	a, _, _ := newAppWithStateAndBridge(t)
+	if err := a.StartServer(); err != nil {
+		t.Fatalf("StartServer: %v", err)
+	}
+	if err := a.StopServer(); err != nil {
+		t.Fatalf("StopServer: %v", err)
+	}
+	reloaded, err := config.Load(a.cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if reloaded.ServerEnabled {
+		t.Errorf("ServerEnabled after Stop: got true, want false")
+	}
+}
+
+func TestStartup_SubscribesEmitterFiresOnStateChange(t *testing.T) {
+	a, holder, _ := newAppWithStateAndBridge(t)
+
+	type captured struct {
+		name string
+		data any
+	}
+	var got []captured
+	var mu sync.Mutex
+	a.SetStatusEmitter(func(_ context.Context, name string, data any) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, captured{name, data})
+	})
+
+	a.Startup(context.Background())
+	t.Cleanup(func() { a.Shutdown(context.Background()) })
+
+	holder.SetServer(bridgestate.ServerRunning)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) == 0 {
+		t.Fatal("no events captured")
+	}
+	last := got[len(got)-1]
+	if last.name != "bridge:status" {
+		t.Errorf("event name: got %q, want bridge:status", last.name)
+	}
+	state, ok := last.data.(bridgestate.State)
+	if !ok {
+		t.Fatalf("event payload type: got %T, want bridgestate.State", last.data)
+	}
+	if state.Server != bridgestate.ServerRunning {
+		t.Errorf("event Server: got %q, want %q", state.Server, bridgestate.ServerRunning)
+	}
+}
+
+func TestShutdown_UnsubscribesStatusEmitter(t *testing.T) {
+	a, holder, _ := newAppWithStateAndBridge(t)
+	var calls int
+	var mu sync.Mutex
+	a.SetStatusEmitter(func(_ context.Context, _ string, _ any) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+	})
+
+	a.Startup(context.Background())
+	a.Shutdown(context.Background())
+
+	holder.SetServer(bridgestate.ServerRunning)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 0 {
+		t.Errorf("calls after Shutdown: got %d, want 0", calls)
 	}
 }

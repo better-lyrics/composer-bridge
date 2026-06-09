@@ -5,7 +5,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -18,6 +20,8 @@ import (
 
 	"github.com/better-lyrics/composer-bridge/internal/activity"
 	"github.com/better-lyrics/composer-bridge/internal/autostart"
+	"github.com/better-lyrics/composer-bridge/internal/bridge"
+	"github.com/better-lyrics/composer-bridge/internal/bridgestate"
 	"github.com/better-lyrics/composer-bridge/internal/config"
 	"github.com/better-lyrics/composer-bridge/internal/library"
 	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
@@ -51,12 +55,16 @@ type App struct {
 	ctx          context.Context
 	hideWindow   func(context.Context)
 	showWindow   func(context.Context)
-	ytdlpVersion func() string
-	quitting     atomic.Int32
-	mu           sync.RWMutex
-	cfg          config.Config
-	downloadDir  string
-	ytdlpPath    string
+	ytdlpVersion  func() string
+	state         *bridgestate.Holder
+	bridge        *bridge.Bridge
+	statusEmitter func(ctx context.Context, name string, data any)
+	unsubStatus   func()
+	quitting      atomic.Int32
+	mu            sync.RWMutex
+	cfg           config.Config
+	downloadDir   string
+	ytdlpPath     string
 }
 
 // New builds an App. Caller retains ownership of lib and act: App does not close them.
@@ -107,6 +115,18 @@ func (a *App) Startup(ctx context.Context) {
 	if a.showWindow != nil {
 		a.showWindow(ctx)
 	}
+	a.mu.RLock()
+	state := a.state
+	emit := a.statusEmitter
+	a.mu.RUnlock()
+	if state != nil && emit != nil {
+		unsub := state.OnChange(func(s bridgestate.State) {
+			emit(ctx, "bridge:status", s)
+		})
+		a.mu.Lock()
+		a.unsubStatus = unsub
+		a.mu.Unlock()
+	}
 }
 
 // MarkQuitting flips an atomic flag the tray's Quit menu sets before calling
@@ -116,8 +136,17 @@ func (a *App) MarkQuitting() {
 	a.quitting.Store(1)
 }
 
-// Shutdown is a no-op: library and activity handles are owned by main.go.
-func (a *App) Shutdown(_ context.Context) {}
+// Shutdown releases any background subscriptions set up in Startup. Library
+// and activity handles are owned by main.go and are not closed here.
+func (a *App) Shutdown(_ context.Context) {
+	a.mu.Lock()
+	unsub := a.unsubStatus
+	a.unsubStatus = nil
+	a.mu.Unlock()
+	if unsub != nil {
+		unsub()
+	}
+}
 
 // Ctx returns the Wails runtime context captured in Startup. May be nil before
 // Startup runs.
@@ -321,6 +350,90 @@ func (a *App) SetYtdlpVersionFn(fn func() string) {
 	a.mu.Lock()
 	a.ytdlpVersion = fn
 	a.mu.Unlock()
+}
+
+// SetBridgeState wires the holder that Wails-bound status methods read from
+// and that Startup subscribes to for event emission. Called by main.go before
+// wails.Run so the rest of the app sees a non-nil holder.
+func (a *App) SetBridgeState(state *bridgestate.Holder) {
+	a.mu.Lock()
+	a.state = state
+	a.mu.Unlock()
+}
+
+// SetBridge installs the controllable HTTP bridge used by StartServer and
+// StopServer. Called by main.go before wails.Run.
+func (a *App) SetBridge(br *bridge.Bridge) {
+	a.mu.Lock()
+	a.bridge = br
+	a.mu.Unlock()
+}
+
+// SetStatusEmitter installs the function used to forward bridgestate changes
+// to the frontend. main.go injects wailsRuntime.EventsEmit; tests inject a
+// recording fake.
+func (a *App) SetStatusEmitter(emit func(ctx context.Context, name string, data any)) {
+	a.mu.Lock()
+	a.statusEmitter = emit
+	a.mu.Unlock()
+}
+
+// BridgeStatus returns a snapshot of the bridge's runtime state. Used by the
+// frontend's initial fetch before the bridge:status event stream takes over.
+// Returns the zero value when no holder has been wired (e.g. headless tests).
+func (a *App) BridgeStatus() bridgestate.State {
+	a.mu.RLock()
+	state := a.state
+	a.mu.RUnlock()
+	if state == nil {
+		return bridgestate.State{}
+	}
+	return state.Snapshot()
+}
+
+// StartServer starts the HTTP bridge on the configured listen port and
+// persists cfg.ServerEnabled=true so the choice survives a restart. Errors
+// when no bridge has been wired or the underlying Start fails.
+func (a *App) StartServer() error {
+	a.mu.RLock()
+	br := a.bridge
+	port := a.cfg.ListenPort
+	a.mu.RUnlock()
+	if br == nil {
+		return errors.New("bridge not configured")
+	}
+	if err := br.Start(port); err != nil {
+		return err
+	}
+	a.persistServerEnabled(true)
+	return nil
+}
+
+// StopServer stops the HTTP bridge and persists cfg.ServerEnabled=false.
+// No-op when no bridge has been wired.
+func (a *App) StopServer() error {
+	a.mu.RLock()
+	br := a.bridge
+	a.mu.RUnlock()
+	if br == nil {
+		return nil
+	}
+	if err := br.Stop(); err != nil {
+		return err
+	}
+	a.persistServerEnabled(false)
+	return nil
+}
+
+func (a *App) persistServerEnabled(enabled bool) {
+	a.mu.Lock()
+	a.cfg.ServerEnabled = enabled
+	cfg := a.cfg
+	path := a.cfgPath
+	a.mu.Unlock()
+	if err := config.Save(path, cfg); err != nil {
+		slog.Warn("persist server_enabled failed", "err", err)
+	}
 }
 
 // YtdlpVersion returns the cached yt-dlp version string, or "unknown".

@@ -20,6 +20,11 @@ type Config struct {
 	YtdlpChannel    string   `json:"ytdlp_channel"`
 	YtdlpBinaryPath string   `json:"ytdlp_binary_path"`
 	OpenAtLogin     bool     `json:"open_at_login"`
+	// ServerEnabled persists the user's last explicit choice toggled via
+	// StartServer/StopServer. Fresh installs default to true via Defaults();
+	// thereafter the on-disk value is authoritative so a tray-stopped state
+	// survives restart.
+	ServerEnabled   bool     `json:"server_enabled"`
 	ShowMenuBarIcon bool     `json:"show_menu_bar_icon"`
 	MaxConcurrent   int      `json:"max_concurrent"`
 	AudioFormat     string   `json:"audio_format"`
@@ -46,6 +51,7 @@ func Defaults() Config {
 		},
 		YtdlpChannel:    "stable",
 		OpenAtLogin:     false,
+		ServerEnabled:   true,
 		ShowMenuBarIcon: true,
 		MaxConcurrent:   3,
 		AudioFormat:     "opus",

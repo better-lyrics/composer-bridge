@@ -417,6 +417,13 @@ func TestSaveLoad_DeepEqualRegressionGuard(t *testing.T) {
 	}
 }
 
+func TestDefaults_ServerEnabledIsTrue(t *testing.T) {
+	d := Defaults()
+	if !d.ServerEnabled {
+		t.Errorf("ServerEnabled: got false, want true (server should be enabled by default)")
+	}
+}
+
 func TestSave_NoStaleTmpOnSuccess(t *testing.T) {
 	path := tmpConfigPath(t)
 
