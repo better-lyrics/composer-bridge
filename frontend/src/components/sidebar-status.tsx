@@ -12,7 +12,12 @@ type Download = "idle" | "active";
 
 const PingDot: React.FC<{ colorClass: string }> = ({ colorClass }) => (
   <span className="relative inline-flex h-2.5 w-2.5 items-center justify-center">
-    <span className={cn("absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping", colorClass)} />
+    <span
+      className={cn(
+        "absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping [animation-duration:3s]",
+        colorClass,
+      )}
+    />
     <span className={cn("relative inline-flex h-2 w-2 rounded-full", colorClass)} />
   </span>
 );
