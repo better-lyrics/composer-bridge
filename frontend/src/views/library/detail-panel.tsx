@@ -222,7 +222,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
                 {downloading ? "Downloading…" : isDownloaded ? "Audio downloaded" : "Download audio"}
               </Button>
               {downloadError && (
-                <span className="text-xs text-composer-error-text">{downloadError}</span>
+                <span className="text-xs text-composer-error-text select-text">{downloadError}</span>
               )}
               <Button variant="secondary" size="md" hasIcon onClick={openYouTube}>
                 <IconBrandYoutube size={14} />

@@ -89,7 +89,7 @@ const ActivityRow: React.FC<ActivityRowProps> = ({ entry, trackTitle }) => {
       <span className="w-32 shrink-0 text-xs font-medium tracking-wide text-composer-text-muted">
         {kindLabel}
       </span>
-      <span className="flex-1 truncate text-sm text-composer-text" title={subject}>
+      <span className="flex-1 truncate text-sm text-composer-text select-text" title={subject}>
         {subject}
       </span>
       {hasError && (

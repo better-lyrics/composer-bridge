@@ -2,7 +2,7 @@
 
 interface SettingRowProps {
   label: string;
-  description?: string;
+  description?: React.ReactNode;
   disabled?: boolean;
   children: React.ReactNode;
 }

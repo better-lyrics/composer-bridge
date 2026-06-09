@@ -116,7 +116,7 @@ const OriginListInput: React.FC<OriginListInputProps> = ({ origins, onChange, ar
           Add
         </Button>
       </form>
-      {error && <p className="text-xs text-composer-error-text">{error}</p>}
+      {error && <p className="text-xs text-composer-error-text select-text">{error}</p>}
     </div>
   );
 };

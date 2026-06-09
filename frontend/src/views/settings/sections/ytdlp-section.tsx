@@ -91,7 +91,7 @@ const YtdlpSection: React.FC<YtdlpSectionProps> = ({
           </Button>
         </SettingRow>
         {updateError && (
-          <p className="py-2 text-xs text-composer-error-text">{updateError}</p>
+          <p className="py-2 text-xs text-composer-error-text select-text">{updateError}</p>
         )}
         <SettingRow label="Bridge version">
           <span className="font-mono text-xs text-composer-text-secondary select-text">

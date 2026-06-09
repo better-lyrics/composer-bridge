@@ -18,14 +18,19 @@ const ServerSection: React.FC<ServerSectionProps> = ({ config }) => {
   const transitioning = server === "starting" || server === "stopping";
   const checked = server === "running";
 
-  let description: string;
+  let description: React.ReactNode;
   if (transitioning) {
     description = "Updating...";
   } else if (server === "running") {
     const fallbackHint = config.use_random_if_busy
       ? " (falls back to the random port written in port.txt if the port is busy)"
       : "";
-    description = `Listening on http://localhost:${config.listen_port}.${fallbackHint}`;
+    const url = `http://localhost:${config.listen_port}`;
+    description = (
+      <>
+        Listening on <span className="select-text">{url}</span>.{fallbackHint}
+      </>
+    );
   } else {
     description = "Composer can't reach the bridge while this is off.";
   }
