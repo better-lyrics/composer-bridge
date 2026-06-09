@@ -256,7 +256,8 @@ const CookiesSection: React.FC = () => {
           <p>
             YouTube has been blocking anonymous downloads more aggressively. Giving yt-dlp a
             cookies file from a signed-in browser session lets it act like that session and
-            usually clears the bot wall.
+            usually clears the bot wall. If your account has YouTube Premium, you can opt
+            into the higher quality audio tier below.
           </p>
         </div>
         <div className="flex flex-col gap-1">
