@@ -87,11 +87,14 @@ func main() {
 
 	holder := bridgestate.NewHolder()
 
+	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
+
 	handlers := &server.Handlers{
 		Library:      lib,
 		Activity:     act,
 		YtdlpPath:    ytdlpPath,
 		YtdlpVersion: getYtdlpVersion,
+		CookiesPath:  a.CookiesPath,
 		ThumbDir:     filepath.Join(dataDir, "thumbs"),
 		Bridge:       Version,
 		AudioFormat:  cfg.AudioFormat,
@@ -104,7 +107,6 @@ func main() {
 		}),
 	}
 
-	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
 	br := bridge.New(holder, func() *http.Server {
 		return &http.Server{
 			Handler:           server.WithCORS(handlers.Router(), func() []string { return a.GetConfig().AllowedOrigins }),

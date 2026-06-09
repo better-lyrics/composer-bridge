@@ -17,6 +17,7 @@ import (
 	"github.com/better-lyrics/composer-bridge/internal/bridgestate"
 	"github.com/better-lyrics/composer-bridge/internal/config"
 	"github.com/better-lyrics/composer-bridge/internal/library"
+	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
 )
 
 func newTestApp(t *testing.T) (*App, *library.Library, *activity.Log, string) {
@@ -561,6 +562,40 @@ func TestStartup_SubscribesEmitterFiresOnStateChange(t *testing.T) {
 	}
 	if state.Server != bridgestate.ServerRunning {
 		t.Errorf("event Server: got %q, want %q", state.Server, bridgestate.ServerRunning)
+	}
+}
+
+// -- CookiesPath ---------------------------------------------------------------
+
+func TestApp_CookiesPath_ReturnsEmptyWhenDisabled(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	// CookiesEnabled defaults to false on a fresh install.
+	if got := a.CookiesPath(); got != "" {
+		t.Errorf("CookiesPath when disabled = %q, want empty", got)
+	}
+}
+
+func TestApp_CookiesPath_ReturnsEmptyWhenNoFile(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	a.mu.Lock()
+	a.cfg.CookiesEnabled = true
+	a.mu.Unlock()
+	if got := a.CookiesPath(); got != "" {
+		t.Errorf("CookiesPath when enabled but absent = %q, want empty", got)
+	}
+}
+
+func TestApp_CookiesPath_ReturnsPathWhenEnabledAndPresent(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	a.mu.Lock()
+	a.cfg.CookiesEnabled = true
+	a.mu.Unlock()
+	if err := os.WriteFile(ytdlp.CookiesPath(a.dataDir), []byte("# Netscape HTTP Cookie File\n"), 0o600); err != nil {
+		t.Fatalf("seed cookies: %v", err)
+	}
+	want := ytdlp.CookiesPath(a.dataDir)
+	if got := a.CookiesPath(); got != want {
+		t.Errorf("CookiesPath when enabled and present = %q, want %q", got, want)
 	}
 }
 

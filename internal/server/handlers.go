@@ -58,12 +58,17 @@ type Handlers struct {
 	Activity     *activity.Log
 	YtdlpPath    string
 	YtdlpVersion func() string
-	ThumbDir     string
-	Bridge       string
-	AudioFormat  string
-	Emitter      events.Emitter
-	EmitterCtx   context.Context
-	State        *bridgestate.Holder
+	// CookiesPath returns the absolute path of the user-uploaded cookies file
+	// when the user has enabled the feature AND the file exists; otherwise "".
+	// Read on every request so toggles take effect immediately. A nil callback
+	// is treated as "" (no cookies, anonymous downloads).
+	CookiesPath func() string
+	ThumbDir    string
+	Bridge      string
+	AudioFormat string
+	Emitter     events.Emitter
+	EmitterCtx  context.Context
+	State       *bridgestate.Holder
 }
 
 // Router returns the bridge's HTTP mux. Wrap with WithCORS at the call site for browser access.
@@ -77,6 +82,15 @@ func (h *Handlers) Router() http.Handler {
 		mux.HandleFunc(p, h.preflight)
 	}
 	return mux
+}
+
+// cookiesPath returns the live cookies file path via the callback, or "" when
+// no callback is wired. Centralized so every yt-dlp call site stays consistent.
+func (h *Handlers) cookiesPath() string {
+	if h.CookiesPath == nil {
+		return ""
+	}
+	return h.CookiesPath()
 }
 
 // Health returns bridge version, yt-dlp version, and a literal "ok" status. Field names are locked to Composer's BridgeHealth interface.
@@ -130,7 +144,7 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	tw := &trackingWriter{rw: w}
 	streamCtx, cancel := context.WithTimeout(r.Context(), audioStreamTTL)
 	defer cancel()
-	err := ytdlp.StreamAudio(streamCtx, h.YtdlpPath, videoID, format, "", tw)
+	err := ytdlp.StreamAudio(streamCtx, h.YtdlpPath, videoID, format, h.cookiesPath(), tw)
 	if err == nil {
 		h.endActivity(actID, activity.StatusOK, "")
 		if h.State != nil {
@@ -158,7 +172,7 @@ func (h *Handlers) resolveTrackForAudio(ctx context.Context, videoID string) *li
 	}
 	infoCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	info, err := ytdlp.FetchInfo(infoCtx, h.YtdlpPath, videoID, "")
+	info, err := ytdlp.FetchInfo(infoCtx, h.YtdlpPath, videoID, h.cookiesPath())
 	if err != nil {
 		slog.Warn("audio: info fetch failed", "videoID", videoID, "err", err)
 		return nil
@@ -196,7 +210,7 @@ func (h *Handlers) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actID := h.startActivity(activity.KindImport, body.VideoID)
-	info, err := ytdlp.FetchInfo(r.Context(), h.YtdlpPath, body.VideoID, "")
+	info, err := ytdlp.FetchInfo(r.Context(), h.YtdlpPath, body.VideoID, h.cookiesPath())
 	if err != nil {
 		h.endActivity(actID, activity.StatusError, fmt.Sprintf("%s: %v", body.VideoID, err))
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("yt-dlp info failed for %s", body.VideoID))

@@ -766,6 +766,47 @@ func TestAudio_EmitterPublishesStartAndEnd(t *testing.T) {
 	}
 }
 
+// -- Cookies path callback -----------------------------------------------------
+
+func TestAudio_PassesCookiesPathFromCallback(t *testing.T) {
+	cookies := filepath.Join(t.TempDir(), "cookies.txt")
+	if err := os.WriteFile(cookies, []byte("# Netscape HTTP Cookie File\n"), 0o600); err != nil {
+		t.Fatalf("seed cookies: %v", err)
+	}
+	env := newTestEnv(t, writeFakeYtdlp(t, `for a in "$@"; do echo "$a" >&2; done; exit 1`))
+	env.handlers.CookiesPath = func() string { return cookies }
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	resp.Body.Close()
+	entry := env.lastActivity()
+	if !strings.Contains(entry.Message, "--cookies") || !strings.Contains(entry.Message, cookies) {
+		t.Errorf("activity message missing cookies args: %q", entry.Message)
+	}
+}
+
+func TestAudio_NoCookiesPath_NoFlag(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `for a in "$@"; do echo "$a" >&2; done; exit 1`))
+	// CookiesPath is nil, same as no callback.
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	resp.Body.Close()
+	entry := env.lastActivity()
+	if strings.Contains(entry.Message, "--cookies") {
+		t.Errorf("activity message unexpectedly contains --cookies: %q", entry.Message)
+	}
+}
+
+func TestAudio_NilCookiesCallbackReturnsEmpty(t *testing.T) {
+	h := &Handlers{}
+	if got := h.cookiesPath(); got != "" {
+		t.Errorf("nil CookiesPath returned %q, want empty string", got)
+	}
+}
+
 // -- Sanity: combined Router under CORS still routes everything ----------------
 
 func TestRouter_UnderCORSWrappersStillRoutes(t *testing.T) {

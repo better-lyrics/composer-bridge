@@ -386,6 +386,22 @@ func (a *App) SetStatusEmitter(emit func(ctx context.Context, name string, data 
 	a.mu.Unlock()
 }
 
+// CookiesPath returns the absolute path of the active cookies file, or ""
+// when cookies are disabled or absent. Used by the HTTP handlers (via the
+// callback in main.go) and by VerifyCookies.
+func (a *App) CookiesPath() string {
+	a.mu.RLock()
+	enabled := a.cfg.CookiesEnabled
+	a.mu.RUnlock()
+	if !enabled {
+		return ""
+	}
+	if !ytdlp.HasCookies(a.dataDir) {
+		return ""
+	}
+	return ytdlp.CookiesPath(a.dataDir)
+}
+
 // BridgeStatus returns a snapshot of the bridge's runtime state. Used by the
 // frontend's initial fetch before the bridge:status event stream takes over.
 // Returns the default-shaped State (server stopped, download idle) when no
@@ -548,7 +564,7 @@ func (a *App) DownloadAudio(videoID string) (*library.Track, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	actID := a.startActivity(activity.KindAudioDownload, videoID)
-	size, err := ytdlp.DownloadToFile(ctx, ytdlpPath, videoID, format, dest, "")
+	size, err := ytdlp.DownloadToFile(ctx, ytdlpPath, videoID, format, dest, a.CookiesPath())
 	if err != nil {
 		a.endActivity(actID, activity.StatusError, err.Error())
 		return nil, err
