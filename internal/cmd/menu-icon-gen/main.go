@@ -27,7 +27,11 @@ type icon struct {
 	out string
 }
 
-const targetSize = 18
+// canvasSize is the PNG dimension (retina-crisp); glyphSize is the visible
+// glyph rendered into a centered region of that canvas so the icon looks
+// smaller in the menu without losing rasterization resolution.
+const canvasSize = 36
+const glyphSize = 20
 
 func main() {
 	icons := []icon{
@@ -54,16 +58,17 @@ func render(srcPath, outPath string) error {
 	if err != nil {
 		return err
 	}
-	parsed.SetTarget(0, 0, float64(targetSize), float64(targetSize))
+	offset := float64(canvasSize-glyphSize) / 2
+	parsed.SetTarget(offset, offset, float64(glyphSize), float64(glyphSize))
 
-	rgba := image.NewNRGBA(image.Rect(0, 0, targetSize, targetSize))
-	scanner := rasterx.NewScannerGV(targetSize, targetSize, rgba, rgba.Bounds())
-	dasher := rasterx.NewDasher(targetSize, targetSize, scanner)
+	rgba := image.NewNRGBA(image.Rect(0, 0, canvasSize, canvasSize))
+	scanner := rasterx.NewScannerGV(canvasSize, canvasSize, rgba, rgba.Bounds())
+	dasher := rasterx.NewDasher(canvasSize, canvasSize, scanner)
 	parsed.Draw(dasher, 1.0)
 
 	out := image.NewNRGBA(rgba.Bounds())
-	for y := 0; y < targetSize; y++ {
-		for x := 0; x < targetSize; x++ {
+	for y := 0; y < canvasSize; y++ {
+		for x := 0; x < canvasSize; x++ {
 			_, _, _, a := rgba.At(x, y).RGBA()
 			out.SetNRGBA(x, y, color.NRGBA{R: 0, G: 0, B: 0, A: uint8(a >> 8)})
 		}
