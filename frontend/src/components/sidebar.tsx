@@ -1,5 +1,6 @@
 import { IconActivity, IconMusic, IconSettings } from "@tabler/icons-react";
 import { BetterLyricsLogo } from "@/components/better-lyrics-logo";
+import { SidebarStatus } from "@/components/sidebar-status";
 import { useUIStore, type View } from "@/stores/ui-store";
 import { cn } from "@/utils/cn";
 
@@ -53,6 +54,9 @@ const Sidebar: React.FC = () => {
           );
         })}
       </nav>
+      <div className="mt-auto px-2 pb-3 [-webkit-app-region:no-drag]">
+        <SidebarStatus />
+      </div>
     </aside>
   );
 };

@@ -1,4 +1,5 @@
 import { Sidebar } from "@/components/sidebar";
+import { useBridgeStatus } from "@/hooks/use-bridge-status";
 import { useUIStore, type View } from "@/stores/ui-store";
 import { ActivityView } from "@/views/activity/activity-view";
 import { LibraryView } from "@/views/library/library-view";
@@ -13,6 +14,7 @@ const VIEWS: Record<View, React.FC> = {
 const App: React.FC = () => {
   const view = useUIStore((s) => s.view);
   const ActiveView = VIEWS[view];
+  useBridgeStatus();
 
   return (
     <div className="flex h-full bg-composer-bg text-composer-text">
