@@ -24,7 +24,12 @@ type Config struct {
 	// StartServer/StopServer. Fresh installs default to true via Defaults();
 	// thereafter the on-disk value is authoritative so a tray-stopped state
 	// survives restart.
-	ServerEnabled   bool   `json:"server_enabled"`
+	ServerEnabled bool `json:"server_enabled"`
+	// CookiesEnabled gates whether yt-dlp receives the --cookies <path> flag.
+	// The path on disk is always <dataDir>/cookies.txt; this boolean is what
+	// the user toggles via Settings after uploading. Defaults to false on
+	// fresh installs so a never-uploaded user gets the anonymous code path.
+	CookiesEnabled  bool   `json:"cookies_enabled"`
 	ShowMenuBarIcon bool   `json:"show_menu_bar_icon"`
 	MaxConcurrent   int    `json:"max_concurrent"`
 	AudioFormat     string `json:"audio_format"`

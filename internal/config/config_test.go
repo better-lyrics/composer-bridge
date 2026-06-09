@@ -434,3 +434,26 @@ func TestSave_NoStaleTmpOnSuccess(t *testing.T) {
 		t.Errorf("Save: stale .tmp present after successful save: stat err = %v", err)
 	}
 }
+
+func TestSave_Load_PreservesCookiesEnabled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	cfg := Defaults()
+	cfg.CookiesEnabled = true
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !loaded.CookiesEnabled {
+		t.Fatalf("CookiesEnabled lost on round-trip")
+	}
+}
+
+func TestDefaults_CookiesEnabledFalse(t *testing.T) {
+	if Defaults().CookiesEnabled {
+		t.Fatalf("Defaults().CookiesEnabled should be false (no auto-flagged cookies on fresh install)")
+	}
+}
