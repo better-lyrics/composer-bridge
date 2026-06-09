@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/better-lyrics/composer-bridge/internal/activity"
+	"github.com/better-lyrics/composer-bridge/internal/bridgestate"
 	"github.com/better-lyrics/composer-bridge/internal/library"
 )
 
@@ -786,5 +787,92 @@ func TestRouter_UnderCORSWrappersStillRoutes(t *testing.T) {
 	}
 	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
 		t.Errorf("allow-origin: got %q, want echoed", got)
+	}
+}
+
+// -- Bridgestate wiring --------------------------------------------------------
+
+func TestAudio_FlipsHolderActiveWhileStreamingAndIdleWhenDone(t *testing.T) {
+	// Slow yt-dlp: write a byte, sleep, write another byte so we can observe
+	// the holder mid-flight via OnChange transitions.
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'a'; sleep 0.05; printf 'b'`))
+	holder := bridgestate.NewHolder()
+	env.handlers.State = holder
+
+	var seen []bridgestate.DownloadStatus
+	var seenIDs []string
+	var mu sync.Mutex
+	t.Cleanup(holder.OnChange(func(s bridgestate.State) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen = append(seen, s.Download)
+		seenIDs = append(seenIDs, s.DownloadVideoID)
+	}))
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.ReadAll(resp.Body)
+
+	mu.Lock()
+	defer mu.Unlock()
+	// We expect at least one active transition with the videoID, followed by
+	// an idle transition. Other intermediate broadcasts may exist; we only
+	// care that the sequence is observable.
+	var sawActive, sawIdleAfterActive bool
+	for i, s := range seen {
+		if s == bridgestate.DownloadActive && seenIDs[i] == "RgKAFK5djSk" {
+			sawActive = true
+		}
+		if sawActive && s == bridgestate.DownloadIdle {
+			sawIdleAfterActive = true
+		}
+	}
+	if !sawActive || !sawIdleAfterActive {
+		t.Errorf("download transitions: got %v (ids %v), want Active-with-id then Idle", seen, seenIDs)
+	}
+	if got := holder.Snapshot().Download; got != bridgestate.DownloadIdle {
+		t.Errorf("final Download: got %q, want %q", got, bridgestate.DownloadIdle)
+	}
+	if got := holder.Snapshot().DownloadVideoID; got != "" {
+		t.Errorf("final DownloadVideoID: got %q, want empty", got)
+	}
+}
+
+func TestAudio_FailedDownloadRecordsLastErrorOnHolder(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `echo "boom" >&2 && exit 1`))
+	holder := bridgestate.NewHolder()
+	env.handlers.State = holder
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	resp.Body.Close()
+
+	snap := holder.Snapshot()
+	if snap.Download != bridgestate.DownloadIdle {
+		t.Errorf("Download: got %q, want %q", snap.Download, bridgestate.DownloadIdle)
+	}
+	if snap.LastError == "" {
+		t.Error("LastError: empty, want non-empty after failed download")
+	}
+}
+
+func TestAudio_NilHolderIsNoop(t *testing.T) {
+	// Regression: existing handlers tests construct Handlers without State.
+	// The handler must not panic when State is nil.
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'ok'`))
+	// State left nil intentionally.
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status: got %d, want 200", resp.StatusCode)
 	}
 }

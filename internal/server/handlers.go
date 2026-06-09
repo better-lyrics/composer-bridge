@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/better-lyrics/composer-bridge/internal/activity"
+	"github.com/better-lyrics/composer-bridge/internal/bridgestate"
 	"github.com/better-lyrics/composer-bridge/internal/events"
 	"github.com/better-lyrics/composer-bridge/internal/library"
 	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
@@ -46,6 +47,10 @@ func audioContentType(format string) string {
 // keep its live feed in sync without polling. A nil Emitter leaves handlers
 // emitting nothing, which is what tests want by default.
 //
+// State is optional: when set, audio downloads flip the holder so the frontend
+// and tray can render a live status ("downloading X"). A nil State leaves the
+// handler behavior unchanged, which is what existing handler tests rely on.
+//
 // YtdlpVersion is a callback rather than a stored string so /health always reads
 // the latest cached value even when yt-dlp is refreshed in the background.
 type Handlers struct {
@@ -58,6 +63,7 @@ type Handlers struct {
 	AudioFormat  string
 	Emitter      events.Emitter
 	EmitterCtx   context.Context
+	State        *bridgestate.Holder
 }
 
 // Router returns the bridge's HTTP mux. Wrap with WithCORS at the call site for browser access.
@@ -101,6 +107,9 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	}
 	track := h.resolveTrackForAudio(r.Context(), videoID)
 	actID := h.startActivity(activity.KindAudioDownload, videoID)
+	if h.State != nil {
+		h.State.StartDownload(videoID)
+	}
 	w.Header().Set("Content-Type", audioContentType(format))
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Bridge-Version", h.Bridge)
@@ -124,9 +133,15 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	err := ytdlp.StreamAudio(streamCtx, h.YtdlpPath, videoID, format, tw)
 	if err == nil {
 		h.endActivity(actID, activity.StatusOK, "")
+		if h.State != nil {
+			h.State.EndDownload("")
+		}
 		return
 	}
 	h.endActivity(actID, activity.StatusError, fmt.Sprintf("%s: %v", videoID, err))
+	if h.State != nil {
+		h.State.EndDownload(fmt.Sprintf("%s: %v", videoID, err))
+	}
 	if tw.wrote {
 		slog.Warn("audio stream failed mid-flight", "videoID", videoID, "err", err)
 		return
