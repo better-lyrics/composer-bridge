@@ -1,6 +1,7 @@
 package ytdlp
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,5 +104,130 @@ func TestRemoveCookies_AbsentIsOK(t *testing.T) {
 	dir := t.TempDir()
 	if err := RemoveCookies(dir); err != nil {
 		t.Fatalf("RemoveCookies on absent file: want nil, got %v", err)
+	}
+}
+
+func TestVerifyCookies_Authenticated(t *testing.T) {
+	// Fake yt-dlp emits the "Found YouTube account cookies" marker on stderr,
+	// stdout JSON, exit 0, the authenticated happy path.
+	dir := t.TempDir()
+	cookies := filepath.Join(dir, "cookies.txt")
+	if err := os.WriteFile(cookies, []byte("# Netscape HTTP Cookie File\n"), 0o600); err != nil {
+		t.Fatalf("seed cookies: %v", err)
+	}
+	script := writeFakeYtdlp(t, `
+echo "[debug] Found YouTube account cookies" >&2
+echo "{}"
+`)
+	res, err := VerifyCookies(context.Background(), script, cookies)
+	if err != nil {
+		t.Fatalf("VerifyCookies: %v", err)
+	}
+	if !res.Loaded {
+		t.Errorf("Loaded = false, want true")
+	}
+	if !res.Authenticated {
+		t.Errorf("Authenticated = false, want true; Detail = %q", res.Detail)
+	}
+	if res.Rotated {
+		t.Errorf("Rotated = true, want false")
+	}
+}
+
+func TestVerifyCookies_AnonymousFallback(t *testing.T) {
+	// Cookies loaded but no auth marker, yt-dlp ran as anonymous.
+	dir := t.TempDir()
+	cookies := filepath.Join(dir, "cookies.txt")
+	if err := os.WriteFile(cookies, []byte("# Netscape HTTP Cookie File\n"), 0o600); err != nil {
+		t.Fatalf("seed cookies: %v", err)
+	}
+	script := writeFakeYtdlp(t, `echo "{}"`)
+	res, err := VerifyCookies(context.Background(), script, cookies)
+	if err != nil {
+		t.Fatalf("VerifyCookies: %v", err)
+	}
+	if !res.Loaded {
+		t.Errorf("Loaded = false, want true (file parsed, just no auth)")
+	}
+	if res.Authenticated {
+		t.Errorf("Authenticated = true, want false")
+	}
+}
+
+func TestVerifyCookies_JSONRejection(t *testing.T) {
+	// yt-dlp's canonical hard-fail for a JSON cookies file.
+	dir := t.TempDir()
+	cookies := filepath.Join(dir, "cookies.txt")
+	if err := os.WriteFile(cookies, []byte("# Netscape HTTP Cookie File\n"), 0o600); err != nil {
+		t.Fatalf("seed cookies: %v", err)
+	}
+	script := writeFakeYtdlp(t, `
+echo "ERROR: Cookies file must be Netscape formatted, not JSON. See FAQ" >&2
+exit 1
+`)
+	res, err := VerifyCookies(context.Background(), script, cookies)
+	if err != nil {
+		t.Fatalf("VerifyCookies: %v", err)
+	}
+	if res.Loaded {
+		t.Errorf("Loaded = true, want false on JSON rejection")
+	}
+	if res.Authenticated {
+		t.Errorf("Authenticated = true on JSON rejection")
+	}
+	if !strings.Contains(res.Detail, "Netscape") {
+		t.Errorf("Detail should mention Netscape format, got %q", res.Detail)
+	}
+}
+
+func TestVerifyCookies_RotatedWarning(t *testing.T) {
+	// Cookies parsed (exit 0) but YouTube rotated the session.
+	dir := t.TempDir()
+	cookies := filepath.Join(dir, "cookies.txt")
+	if err := os.WriteFile(cookies, []byte("# Netscape HTTP Cookie File\n"), 0o600); err != nil {
+		t.Fatalf("seed cookies: %v", err)
+	}
+	script := writeFakeYtdlp(t, `
+echo "WARNING: The provided YouTube account cookies are no longer valid." >&2
+echo "{}"
+`)
+	res, err := VerifyCookies(context.Background(), script, cookies)
+	if err != nil {
+		t.Fatalf("VerifyCookies: %v", err)
+	}
+	if !res.Rotated {
+		t.Errorf("Rotated = false, want true; Detail = %q", res.Detail)
+	}
+	if res.Authenticated {
+		t.Errorf("Authenticated = true on rotated cookies")
+	}
+}
+
+func TestVerifyCookies_GenericExecFailure(t *testing.T) {
+	// Exit non-zero with stderr that doesn't match any known marker.
+	dir := t.TempDir()
+	cookies := filepath.Join(dir, "cookies.txt")
+	if err := os.WriteFile(cookies, []byte("# Netscape HTTP Cookie File\n"), 0o600); err != nil {
+		t.Fatalf("seed cookies: %v", err)
+	}
+	script := writeFakeYtdlp(t, `echo "ERROR: network unreachable" >&2; exit 1`)
+	res, err := VerifyCookies(context.Background(), script, cookies)
+	if err != nil {
+		t.Fatalf("VerifyCookies: %v", err)
+	}
+	if res.Loaded || res.Authenticated {
+		t.Errorf("expected Loaded=false Authenticated=false on generic failure")
+	}
+	if !strings.Contains(res.Detail, "network unreachable") && !strings.Contains(res.Detail, "exit") {
+		t.Errorf("Detail should describe the failure, got %q", res.Detail)
+	}
+}
+
+func TestVerifyCookies_RejectsMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "nope.txt")
+	_, err := VerifyCookies(context.Background(), "/bin/true", missing)
+	if err == nil {
+		t.Fatalf("missing file: want error, got nil")
 	}
 }

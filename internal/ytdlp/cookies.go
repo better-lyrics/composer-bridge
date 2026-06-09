@@ -1,9 +1,13 @@
 package ytdlp
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -57,6 +61,83 @@ func RemoveCookies(dataDir string) error {
 		return nil
 	}
 	return err
+}
+
+// VerifyResult summarises the outcome of a yt-dlp cookies probe.
+type VerifyResult struct {
+	// Loaded is true when yt-dlp parsed the cookies file without a hard
+	// LoadError. False when the file was JSON, unreadable, etc.
+	Loaded bool `json:"loaded"`
+	// Authenticated is true when yt-dlp logged "Found YouTube account
+	// cookies" on stderr, indicating the cookies contained LOGIN_INFO and a
+	// SAPISID variant. Always false when Loaded is false.
+	Authenticated bool `json:"authenticated"`
+	// Rotated is true when yt-dlp emitted "The provided YouTube account
+	// cookies are no longer valid" on stderr, indicating Google rotated
+	// the session since the cookies were exported.
+	Rotated bool `json:"rotated"`
+	// Detail is a human-readable summary suitable for display in the
+	// Settings UI.
+	Detail string `json:"detail"`
+}
+
+const verifyTestURL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+// VerifyCookies probes yt-dlp with the given cookies file against a stable
+// YouTube URL using --verbose --dump-json --simulate, then parses stderr for
+// the auth/loaded/rotated markers. Returns an error only when the probe
+// cannot be attempted (missing file). A probe that ran but reported "JSON
+// rejected" or "anonymous fallback" returns a non-nil VerifyResult with the
+// appropriate flags set, not an error.
+func VerifyCookies(ctx context.Context, ytdlpPath, cookiesPath string) (VerifyResult, error) {
+	if _, err := os.Stat(cookiesPath); err != nil {
+		return VerifyResult{}, fmt.Errorf("cookies file unreadable: %w", err)
+	}
+	args := []string{
+		"--verbose",
+		"--dump-json",
+		"--simulate",
+		"--no-warnings",
+		"--no-playlist",
+		"--cookies", cookiesPath,
+		verifyTestURL,
+	}
+	cmd := exec.CommandContext(ctx, ytdlpPath, args...)
+	cmd.WaitDelay = killWaitDelay
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	cmd.Stdout = io.Discard
+	runErr := cmd.Run()
+	se := stderr.String()
+
+	if strings.Contains(se, "Cookies file must be Netscape formatted") {
+		return VerifyResult{
+			Loaded:        false,
+			Authenticated: false,
+			Detail:        "yt-dlp rejected the file: cookies must be in Netscape (cookies.txt) format. JSON exports are not supported. Use \"Get cookies.txt LOCALLY\" or a similar Netscape export.",
+		}, nil
+	}
+	if runErr != nil {
+		return VerifyResult{
+			Loaded:        false,
+			Authenticated: false,
+			Detail:        fmt.Sprintf("yt-dlp probe failed: %v (stderr: %s)", runErr, stderrTail(&stderr)),
+		}, nil
+	}
+
+	res := VerifyResult{Loaded: true}
+	if strings.Contains(se, "Found YouTube account cookies") {
+		res.Authenticated = true
+		res.Detail = "Cookies loaded and YouTube recognised an authenticated session."
+	} else {
+		res.Detail = "Cookies loaded but YouTube treated the request as anonymous. The exported file may have been missing the LOGIN_INFO / SAPISID cookies."
+	}
+	if strings.Contains(se, "no longer valid") || strings.Contains(se, "have likely been rotated") {
+		res.Rotated = true
+		res.Authenticated = false
+		res.Detail = "The cookies have expired or been rotated. Export a fresh cookies.txt from a signed-in browser session."
+	}
+	return res, nil
 }
 
 // looksLikeNetscape recognises the canonical Netscape cookies.txt header

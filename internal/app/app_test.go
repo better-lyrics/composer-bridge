@@ -743,3 +743,11 @@ func TestShutdown_UnsubscribesStatusEmitter(t *testing.T) {
 		t.Errorf("calls after Shutdown: got %d, want 0", calls)
 	}
 }
+
+func TestApp_VerifyCookies_ReturnsErrorWhenNoFile(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	_, err := a.VerifyCookies(context.Background())
+	if err == nil {
+		t.Fatalf("VerifyCookies with no file: want error")
+	}
+}

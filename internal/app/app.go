@@ -467,6 +467,22 @@ func (a *App) SetCookiesEnabled(enabled bool) error {
 	return config.Save(a.cfgPath, cfgCopy)
 }
 
+// VerifyCookies runs a yt-dlp probe against a stable YouTube URL using the
+// uploaded cookies file and reports whether the cookies loaded and whether
+// YouTube recognised an authenticated session. Returns an error when no
+// cookies file is present on disk.
+func (a *App) VerifyCookies(ctx context.Context) (ytdlp.VerifyResult, error) {
+	if !ytdlp.HasCookies(a.dataDir) {
+		return ytdlp.VerifyResult{}, errors.New("no cookies file uploaded")
+	}
+	a.mu.RLock()
+	ytdlpPath := a.ytdlpPath
+	a.mu.RUnlock()
+	probeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return ytdlp.VerifyCookies(probeCtx, ytdlpPath, ytdlp.CookiesPath(a.dataDir))
+}
+
 // BridgeStatus returns a snapshot of the bridge's runtime state. Used by the
 // frontend's initial fetch before the bridge:status event stream takes over.
 // Returns the default-shaped State (server stopped, download idle) when no
