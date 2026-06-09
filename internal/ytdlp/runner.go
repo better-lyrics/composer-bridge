@@ -56,7 +56,7 @@ func FetchInfo(ctx context.Context, ytdlpPath, videoID, cookiesPath string) (*In
 		"--skip-download",
 		"--no-warnings",
 		"--no-playlist",
-		"--extractor-args", "youtube:player_client=web,web_music",
+		"--extractor-args", "youtube:player_client=web_music,android_vr,web_safari",
 	}
 	if cookiesPath != "" {
 		args = append(args, "--cookies", cookiesPath)
@@ -91,7 +91,7 @@ func StreamAudio(ctx context.Context, ytdlpPath, videoID, format, cookiesPath st
 		"--quiet",
 		"--no-warnings",
 		"--no-playlist",
-		"--extractor-args", "youtube:player_client=web,web_music",
+		"--extractor-args", "youtube:player_client=web_music,android_vr,web_safari",
 	}
 	if cookiesPath != "" {
 		args = append(args, "--cookies", cookiesPath)
