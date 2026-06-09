@@ -1,4 +1,4 @@
-import { IconLoader2, IconPlayerStop } from "@tabler/icons-react";
+import { IconLoader2 } from "@tabler/icons-react";
 import type React from "react";
 import { useUIStore } from "@/stores/ui-store";
 import { cn } from "@/utils/cn";
@@ -18,6 +18,12 @@ const PingDot: React.FC<{ colorClass: string }> = ({ colorClass }) => (
         colorClass,
       )}
     />
+    <span className={cn("relative inline-flex h-2 w-2 rounded-full", colorClass)} />
+  </span>
+);
+
+const StaticDot: React.FC<{ colorClass: string }> = ({ colorClass }) => (
+  <span className="relative inline-flex h-2.5 w-2.5 items-center justify-center">
     <span className={cn("relative inline-flex h-2 w-2 rounded-full", colorClass)} />
   </span>
 );
@@ -50,7 +56,7 @@ const SidebarStatus: React.FC = () => {
     indicator = <IconLoader2 size={14} className="animate-spin text-composer-text-muted" />;
     label = "Stopping...";
   } else {
-    indicator = <IconPlayerStop size={14} className="text-composer-text-muted" />;
+    indicator = <StaticDot colorClass="bg-composer-text-muted" />;
     label = "Server stopped";
     textClass = "text-composer-text-muted";
   }
