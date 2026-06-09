@@ -65,10 +65,22 @@ func (b *Bridge) Start(preferred int) error {
 	b.ln = ln
 	b.port = ln.Addr().(*net.TCPAddr).Port
 	go func() {
-		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("bridge serve", "err", err)
-			b.holder.SetServer(bridgestate.ServerStopped)
+		err := srv.Serve(ln)
+		if err == nil || errors.Is(err, http.ErrServerClosed) {
+			return
 		}
+		slog.Error("bridge serve", "err", err)
+		// Spontaneous Serve failure: clear internal fields so the next Start
+		// can succeed. Guard against racing Stop, which nulls these fields
+		// itself and will hold b.mu while doing so.
+		b.mu.Lock()
+		if b.srv == srv {
+			b.srv = nil
+			b.ln = nil
+			b.port = 0
+		}
+		b.mu.Unlock()
+		b.holder.SetServer(bridgestate.ServerStopped)
 	}()
 	b.holder.SetServer(bridgestate.ServerRunning)
 	return nil
