@@ -599,6 +599,129 @@ func TestApp_CookiesPath_ReturnsPathWhenEnabledAndPresent(t *testing.T) {
 	}
 }
 
+// -- CookiesState / UploadCookies / RemoveCookies / SetCookiesEnabled ----------
+
+func TestApp_UploadCookies_WritesFileAndEnables(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	dir := a.dataDir
+	content := "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tFALSE\t0\tSID\tfoo\n"
+	if err := a.UploadCookies(content); err != nil {
+		t.Fatalf("UploadCookies: %v", err)
+	}
+	if !ytdlp.HasCookies(dir) {
+		t.Fatalf("cookies.txt not written")
+	}
+	got, _ := os.ReadFile(ytdlp.CookiesPath(dir))
+	if string(got) != content {
+		t.Fatalf("file content mismatch")
+	}
+	state := a.CookiesState()
+	if !state.Present || !state.Enabled {
+		t.Fatalf("state after upload: present=%v enabled=%v", state.Present, state.Enabled)
+	}
+}
+
+func TestApp_UploadCookies_RejectsJSON(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	dir := a.dataDir
+	err := a.UploadCookies(`[{"name": "SID", "value": "foo"}]`)
+	if err == nil {
+		t.Fatalf("UploadCookies(JSON): want error")
+	}
+	if ytdlp.HasCookies(dir) {
+		t.Fatalf("file should not be written on rejection")
+	}
+	state := a.CookiesState()
+	if state.Enabled {
+		t.Fatalf("CookiesEnabled should remain false after rejection")
+	}
+}
+
+func TestApp_UploadCookies_PersistsEnabledFlag(t *testing.T) {
+	a, _, _, cfgPath := newTestApp(t)
+	if err := a.UploadCookies("# Netscape HTTP Cookie File\n"); err != nil {
+		t.Fatalf("UploadCookies: %v", err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if !cfg.CookiesEnabled {
+		t.Fatalf("CookiesEnabled not persisted to disk")
+	}
+}
+
+func TestApp_RemoveCookies_ClearsFileAndDisables(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	dir := a.dataDir
+	_ = a.UploadCookies("# Netscape HTTP Cookie File\n")
+	if err := a.RemoveCookies(); err != nil {
+		t.Fatalf("RemoveCookies: %v", err)
+	}
+	if ytdlp.HasCookies(dir) {
+		t.Fatalf("cookies.txt still present")
+	}
+	state := a.CookiesState()
+	if state.Present || state.Enabled {
+		t.Fatalf("state after remove: present=%v enabled=%v", state.Present, state.Enabled)
+	}
+}
+
+func TestApp_RemoveCookies_AbsentFileIsOK(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	if err := a.RemoveCookies(); err != nil {
+		t.Fatalf("RemoveCookies(absent): %v", err)
+	}
+}
+
+func TestApp_SetCookiesEnabled_KeepsFile(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	dir := a.dataDir
+	_ = a.UploadCookies("# Netscape HTTP Cookie File\n")
+	if err := a.SetCookiesEnabled(false); err != nil {
+		t.Fatalf("SetCookiesEnabled(false): %v", err)
+	}
+	if !ytdlp.HasCookies(dir) {
+		t.Fatalf("file should remain on disk after disable")
+	}
+	state := a.CookiesState()
+	if !state.Present || state.Enabled {
+		t.Fatalf("state: present=%v enabled=%v", state.Present, state.Enabled)
+	}
+	if err := a.SetCookiesEnabled(true); err != nil {
+		t.Fatalf("SetCookiesEnabled(true): %v", err)
+	}
+	state = a.CookiesState()
+	if !state.Present || !state.Enabled {
+		t.Fatalf("after re-enable: present=%v enabled=%v", state.Present, state.Enabled)
+	}
+}
+
+func TestApp_SetCookiesEnabled_PersistsToDisk(t *testing.T) {
+	a, _, _, cfgPath := newTestApp(t)
+	_ = a.UploadCookies("# Netscape HTTP Cookie File\n")
+	if err := a.SetCookiesEnabled(false); err != nil {
+		t.Fatalf("SetCookiesEnabled: %v", err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if cfg.CookiesEnabled {
+		t.Fatalf("disable not persisted")
+	}
+}
+
+func TestApp_CookiesState_PathAlwaysSet(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	dir := a.dataDir
+	state := a.CookiesState()
+	want := ytdlp.CookiesPath(dir)
+	if state.Path != want {
+		t.Fatalf("Path = %q, want %q (independent of Present/Enabled)", state.Path, want)
+	}
+}
+
 func TestShutdown_UnsubscribesStatusEmitter(t *testing.T) {
 	a, holder, _ := newAppWithStateAndBridge(t)
 	var calls int

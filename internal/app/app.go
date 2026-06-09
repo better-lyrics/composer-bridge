@@ -388,7 +388,7 @@ func (a *App) SetStatusEmitter(emit func(ctx context.Context, name string, data 
 
 // CookiesPath returns the absolute path of the active cookies file, or ""
 // when cookies are disabled or absent. Used by the HTTP handlers (via the
-// callback in main.go) and by VerifyCookies.
+// callback in main.go).
 func (a *App) CookiesPath() string {
 	a.mu.RLock()
 	enabled := a.cfg.CookiesEnabled
@@ -400,6 +400,71 @@ func (a *App) CookiesPath() string {
 		return ""
 	}
 	return ytdlp.CookiesPath(a.dataDir)
+}
+
+// CookiesStatus is the read-only view of the cookies feature for the
+// Settings UI. Present is whether a cookies.txt exists on disk; Enabled is
+// whether the bridge currently passes --cookies to yt-dlp. The two can
+// diverge: a user can upload then toggle off, or toggle on without ever
+// uploading (in which case yt-dlp falls back to anonymous). Path is the
+// canonical disk location regardless of state, so the UI can display it.
+type CookiesStatus struct {
+	Present bool   `json:"present"`
+	Enabled bool   `json:"enabled"`
+	Path    string `json:"path"`
+}
+
+// CookiesState returns the current cookies feature state.
+func (a *App) CookiesState() CookiesStatus {
+	a.mu.RLock()
+	enabled := a.cfg.CookiesEnabled
+	a.mu.RUnlock()
+	return CookiesStatus{
+		Present: ytdlp.HasCookies(a.dataDir),
+		Enabled: enabled,
+		Path:    ytdlp.CookiesPath(a.dataDir),
+	}
+}
+
+// UploadCookies writes the given Netscape cookies.txt content to the
+// canonical location atomically AND enables the feature. Rejects empty
+// input and non-Netscape formats (e.g. JSON exports).
+func (a *App) UploadCookies(content string) error {
+	if err := ytdlp.SaveCookies(a.dataDir, content); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.cfg.CookiesEnabled = true
+	cfgCopy := a.cfg
+	a.mu.Unlock()
+	if err := config.Save(a.cfgPath, cfgCopy); err != nil {
+		return fmt.Errorf("persist cookies-enabled flag: %w", err)
+	}
+	return nil
+}
+
+// RemoveCookies deletes the cookies file from disk AND disables the feature.
+// Idempotent: an absent file is fine.
+func (a *App) RemoveCookies() error {
+	if err := ytdlp.RemoveCookies(a.dataDir); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.cfg.CookiesEnabled = false
+	cfgCopy := a.cfg
+	a.mu.Unlock()
+	return config.Save(a.cfgPath, cfgCopy)
+}
+
+// SetCookiesEnabled flips the bridge-side gate without touching the file
+// on disk. Lets the user keep their uploaded cookies but pause use, or
+// re-enable after a pause.
+func (a *App) SetCookiesEnabled(enabled bool) error {
+	a.mu.Lock()
+	a.cfg.CookiesEnabled = enabled
+	cfgCopy := a.cfg
+	a.mu.Unlock()
+	return config.Save(a.cfgPath, cfgCopy)
 }
 
 // BridgeStatus returns a snapshot of the bridge's runtime state. Used by the
