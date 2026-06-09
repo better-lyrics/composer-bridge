@@ -124,6 +124,9 @@ func main() {
 			slog.Error("bridge start failed", "err", startErr)
 		} else {
 			slog.Info("bridge listening", "url", fmt.Sprintf("http://localhost:%d", br.Port()))
+			if err := server.WritePortFile(dataDir, br.Port()); err != nil {
+				slog.Warn("write port.txt failed", "err", err)
+			}
 		}
 	}
 

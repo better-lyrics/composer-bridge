@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -486,6 +487,37 @@ func TestStopServer_PersistsServerEnabledFalse(t *testing.T) {
 	}
 	if reloaded.ServerEnabled {
 		t.Errorf("ServerEnabled after Stop: got true, want false")
+	}
+}
+
+func TestStartServer_WritesPortFile(t *testing.T) {
+	a, _, _ := newAppWithStateAndBridge(t)
+	if err := a.StartServer(); err != nil {
+		t.Fatalf("StartServer: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(a.dataDir, "port.txt"))
+	if err != nil {
+		t.Fatalf("read port.txt: %v", err)
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatalf("parse port.txt: %v", err)
+	}
+	if port == 0 {
+		t.Errorf("port: got 0, want bound port")
+	}
+}
+
+func TestStopServer_RemovesPortFile(t *testing.T) {
+	a, _, _ := newAppWithStateAndBridge(t)
+	if err := a.StartServer(); err != nil {
+		t.Fatalf("StartServer: %v", err)
+	}
+	if err := a.StopServer(); err != nil {
+		t.Fatalf("StopServer: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(a.dataDir, "port.txt")); !os.IsNotExist(err) {
+		t.Errorf("port.txt: got err %v, want IsNotExist", err)
 	}
 }
 

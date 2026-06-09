@@ -24,6 +24,7 @@ import (
 	"github.com/better-lyrics/composer-bridge/internal/bridgestate"
 	"github.com/better-lyrics/composer-bridge/internal/config"
 	"github.com/better-lyrics/composer-bridge/internal/library"
+	"github.com/better-lyrics/composer-bridge/internal/server"
 	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
 	"github.com/better-lyrics/composer-bridge/tray"
 
@@ -401,7 +402,10 @@ func (a *App) BridgeStatus() bridgestate.State {
 
 // StartServer starts the HTTP bridge on the configured listen port and
 // persists cfg.ServerEnabled=true so the choice survives a restart. Errors
-// when no bridge has been wired or the underlying Start fails.
+// when no bridge has been wired or the underlying Start fails. Writes the
+// bound port to dataDir/port.txt as a best-effort recovery hint for the
+// README-documented "preferred port busy, fell back to ephemeral" path and
+// for Composer's discovery hook.
 func (a *App) StartServer() error {
 	a.mu.RLock()
 	br := a.bridge
@@ -413,12 +417,16 @@ func (a *App) StartServer() error {
 	if err := br.Start(port); err != nil {
 		return err
 	}
+	if err := server.WritePortFile(a.dataDir, br.Port()); err != nil {
+		slog.Warn("write port.txt failed", "err", err)
+	}
 	a.persistServerEnabled(true)
 	return nil
 }
 
 // StopServer stops the HTTP bridge and persists cfg.ServerEnabled=false.
-// No-op when no bridge has been wired.
+// No-op when no bridge has been wired. Removes dataDir/port.txt so the
+// recovery hint does not point at a port nothing is listening on.
 func (a *App) StopServer() error {
 	a.mu.RLock()
 	br := a.bridge
@@ -429,6 +437,7 @@ func (a *App) StopServer() error {
 	if err := br.Stop(); err != nil {
 		return err
 	}
+	_ = os.Remove(filepath.Join(a.dataDir, "port.txt"))
 	a.persistServerEnabled(false)
 	return nil
 }

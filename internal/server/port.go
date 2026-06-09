@@ -29,7 +29,7 @@ func SelectPort(preferred int, dataDir string) (*PortSelection, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(preferred))
 	if err == nil {
 		port := listener.Addr().(*net.TCPAddr).Port
-		if writeErr := writePortFile(dataDir, port); writeErr != nil {
+		if writeErr := WritePortFile(dataDir, port); writeErr != nil {
 			listener.Close()
 			return nil, writeErr
 		}
@@ -44,7 +44,7 @@ func SelectPort(preferred int, dataDir string) (*PortSelection, error) {
 		return nil, err
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	if writeErr := writePortFile(dataDir, port); writeErr != nil {
+	if writeErr := WritePortFile(dataDir, port); writeErr != nil {
 		listener.Close()
 		return nil, writeErr
 	}
@@ -64,7 +64,11 @@ func listenEphemeral() (net.Listener, error) {
 	return nil, errors.New("no free port in ephemeral range 49152-65535")
 }
 
-func writePortFile(dataDir string, port int) error {
+// WritePortFile atomically writes port to dataDir/port.txt. Composer's
+// discovery hook and the README's recovery instructions both read this file
+// when the preferred bridge port is busy and the server falls back to an
+// ephemeral one.
+func WritePortFile(dataDir string, port int) error {
 	path := filepath.Join(dataDir, "port.txt")
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(strconv.Itoa(port)), 0o644); err != nil {
