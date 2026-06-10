@@ -15,11 +15,11 @@ const UpdateBanner: React.FC = () => {
     <div
       role="region"
       aria-label="Update available"
-      className="flex flex-col border-b border-composer-border bg-composer-accent-dark/10 pt-6"
+      className="flex flex-col border-b border-composer-border bg-composer-accent-dark/10"
       style={{ "--wails-draggable": "drag" } as React.CSSProperties}
     >
       <div
-        className="flex h-10 items-center gap-3 px-4"
+        className="flex h-10 items-center gap-3 pr-4 pl-20"
         style={{ "--wails-draggable": "no-drag" } as React.CSSProperties}
       >
         <div className="flex flex-1 items-center gap-2 select-none">
