@@ -19,7 +19,7 @@ const UpdateBanner: React.FC = () => {
       style={{ "--wails-draggable": "drag" } as React.CSSProperties}
     >
       <div
-        className="flex h-[52px] items-center gap-3 pr-4 pl-24"
+        className="flex h-13 items-center gap-3 pr-4 pl-24"
         style={{ "--wails-draggable": "no-drag" } as React.CSSProperties}
       >
         <div className="flex flex-1 items-center gap-2 select-none">
