@@ -18,16 +18,27 @@ const NAV_ITEMS: NavItem[] = [
   { id: "settings", label: "Settings", Icon: IconSettings },
 ];
 
+interface SidebarProps {
+  // bannerVisible signals that the update banner is mounted above the app
+  // shell, so it owns the macOS title-bar inset zone. When true the sidebar
+  // skips its own large top padding to avoid pushing the logo well past the
+  // visible chrome.
+  bannerVisible?: boolean;
+}
+
 // -- Component ----------------------------------------------------------------
 
-const Sidebar: React.FC = () => {
+const Sidebar: React.FC<SidebarProps> = ({ bannerVisible = false }) => {
   const view = useUIStore((s) => s.view);
   const setView = useUIStore((s) => s.setView);
 
   return (
     <aside className="flex h-full w-52 shrink-0 flex-col border-r border-composer-border bg-composer-bg select-none">
       <div
-        className="flex items-center gap-2 px-4 pt-14 pb-4"
+        className={cn(
+          "flex items-center gap-2 px-4 pb-4",
+          bannerVisible ? "pt-4" : "pt-14",
+        )}
         style={{ "--wails-draggable": "drag" } as React.CSSProperties}
       >
         <BetterLyricsLogo size={20} />
