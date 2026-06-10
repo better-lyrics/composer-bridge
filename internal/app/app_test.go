@@ -878,6 +878,46 @@ func newManifestServer(t *testing.T, m updater.Manifest) *httptest.Server {
 	return srv
 }
 
+func TestApp_SetManifestURL_OverridesCheckTarget(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	if got := a.ManifestURL(); got != updater.DefaultManifestURL {
+		t.Fatalf("default ManifestURL: got %q, want %q", got, updater.DefaultManifestURL)
+	}
+
+	m := updater.Manifest{
+		Version:    "7.7.7",
+		ReleasedAt: time.Now(),
+		Notes:      "override",
+		Assets: map[string]map[string]updater.Asset{
+			runtime.GOOS: {
+				runtime.GOARCH: {URL: "https://example.invalid/x", SHA256: "deadbeef"},
+			},
+		},
+	}
+	srv := newManifestServer(t, m)
+	a.SetManifestURL(srv.URL)
+	if got := a.ManifestURL(); got != srv.URL {
+		t.Fatalf("SetManifestURL did not persist: got %q, want %q", got, srv.URL)
+	}
+
+	info, err := a.CheckForUpdates()
+	if err != nil {
+		t.Fatalf("CheckForUpdates: %v", err)
+	}
+	if info == nil || info.Latest != "7.7.7" {
+		t.Errorf("CheckForUpdates did not hit the override server: got %+v", info)
+	}
+}
+
+func TestApp_SetManifestURL_EmptyIsNoop(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	original := a.ManifestURL()
+	a.SetManifestURL("")
+	if got := a.ManifestURL(); got != original {
+		t.Errorf("empty SetManifestURL changed value: got %q, want %q", got, original)
+	}
+}
+
 func TestApp_CheckForUpdates_StashesAndReturnsAvailable(t *testing.T) {
 	a, _, _, _ := newTestApp(t)
 	m := updater.Manifest{

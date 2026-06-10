@@ -56,8 +56,8 @@ const (
 // App wires the bridge's storage and config into Wails-callable methods.
 // Wails dispatches JS calls on separate goroutines, so any field a method both
 // reads and writes needs mutex protection. mu guards cfg, downloadDir,
-// ytdlpPath, and latestUpdate; everything else is set once in New and never
-// mutated.
+// ytdlpPath, latestUpdate, and manifestURL; everything else is set once in
+// New and never mutated.
 type App struct {
 	library       *library.Library
 	activity      *activity.Log
@@ -80,6 +80,7 @@ type App struct {
 	downloadDir   string
 	ytdlpPath     string
 	latestUpdate  *updater.UpdateInfo
+	manifestURL   string
 }
 
 // New builds an App. Caller retains ownership of lib and act: App does not close them.
@@ -100,6 +101,7 @@ func New(lib *library.Library, act *activity.Log, cfg config.Config, cfgPath, da
 		version:     version,
 		hideWindow:  wailsRuntime.WindowHide,
 		showWindow:  wailsRuntime.WindowShow,
+		manifestURL: updater.DefaultManifestURL,
 	}
 	activeMu.Lock()
 	activeApp = a
@@ -190,6 +192,28 @@ func (a *App) LatestUpdate() *updater.UpdateInfo {
 	return a.latestUpdate
 }
 
+// SetManifestURL overrides the manifest URL used by CheckForUpdates. main.go
+// calls this when COMPOSER_BRIDGE_MANIFEST_URL is set so manual checks and
+// the daily poll point at the same fake server during local testing. An empty
+// argument is a no-op so callers can pass os.Getenv directly.
+func (a *App) SetManifestURL(url string) {
+	if url == "" {
+		return
+	}
+	a.mu.Lock()
+	a.manifestURL = url
+	a.mu.Unlock()
+}
+
+// ManifestURL returns the currently active manifest URL. Unexported callers
+// could read the field directly; the public method exists so tests can assert
+// the override took effect without reaching into private state.
+func (a *App) ManifestURL() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.manifestURL
+}
+
 // CheckForUpdates is Wails-bound. Triggers a one-shot manifest fetch, stashes
 // the result, and emits bridge:update-available so any open window updates its
 // banner. Returns the same UpdateInfo so the caller can render inline status
@@ -200,7 +224,7 @@ func (a *App) LatestUpdate() *updater.UpdateInfo {
 func (a *App) CheckForUpdates() (*updater.UpdateInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeout)
 	defer cancel()
-	info, err := updater.Check(ctx, updater.DefaultManifestURL, a.version, runtime.GOOS, runtime.GOARCH)
+	info, err := updater.Check(ctx, a.ManifestURL(), a.version, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return nil, err
 	}

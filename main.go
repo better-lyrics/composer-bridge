@@ -34,9 +34,23 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-const Version = "1.4.0"
+const Version = "1.4.1"
 
 func main() {
+	// SingleInstanceLock handshake: when ApplyAndRelaunch spawns us with the
+	// RelaunchUpdatedFlag, the parent's flock file descriptor may still be open
+	// for a few microseconds after its os.Exit. Sleep before wails.Run so the
+	// kernel has time to release the lock; otherwise our boot trips
+	// OnSecondInstanceLaunch (focus a window that is mid-shutdown) and we
+	// silently exit. No OSS project pairs minio/selfupdate with Wails'
+	// SingleInstanceLock so this 500ms is uncharted but empirically generous.
+	for _, arg := range os.Args[1:] {
+		if arg == updater.RelaunchUpdatedFlag {
+			time.Sleep(500 * time.Millisecond)
+			break
+		}
+	}
+
 	dataDir := resolveDataDir()
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		fatal("data dir: %v", err)
@@ -135,10 +149,19 @@ func main() {
 		}
 	}
 
+	// COMPOSER_BRIDGE_MANIFEST_URL lets local testing point both the daily
+	// poll and the Settings "Check now" button at a fake manifest server
+	// without rebuilding the binary. Empty falls back to the production URL.
+	manifestURL := os.Getenv("COMPOSER_BRIDGE_MANIFEST_URL")
+	if manifestURL == "" {
+		manifestURL = updater.DefaultManifestURL
+	}
+	a.SetManifestURL(manifestURL)
+
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
 	scheduleYtdlpRefresh(bgCtx, dataDir)
-	go updater.PollDaily(bgCtx, updater.DefaultManifestURL, Version, func(info updater.UpdateInfo) {
+	go updater.PollDaily(bgCtx, manifestURL, Version, func(info updater.UpdateInfo) {
 		slog.Info("bridge update available", "version", info.Latest, "current", info.Current)
 		a.SetLatestUpdate(&info)
 		if appCtx := a.Ctx(); appCtx != nil {

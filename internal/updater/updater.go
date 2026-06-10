@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -197,36 +198,53 @@ func semverTag(v string) string {
 // failure).
 func Apply(ctx context.Context, asset Asset) error { return applyTo(ctx, asset, "") }
 
-// ApplyAndRelaunch runs Apply and then spawns a fresh child process pointing at
-// the current executable path so the OS picks up the swapped binary. The child
-// is detached (cmd.Process.Release) so it survives the caller's exit. The
-// caller is responsible for tearing down its own Wails / HTTP / DB resources
-// and calling runtime.Quit after this returns nil; the updater package stays
-// Wails-agnostic on purpose so the swap mechanics remain independently
-// testable.
+// RelaunchUpdatedFlag is appended to the child process's argv so main() can
+// recognise an update-driven restart and add a small grace period before
+// calling wails.Run. Without it the child races the parent's still-held
+// SingleInstanceLock flock, gets treated as a second instance, focuses the
+// dying parent's window, and exits.
+const RelaunchUpdatedFlag = "--updated"
+
+// ApplyAndRelaunch runs Apply and then spawns a fresh child process pointing
+// at the swapped binary so the OS picks up the new version. The caller is
+// responsible for tearing down its own Wails / HTTP / DB resources and calling
+// runtime.Quit after this returns nil; the updater package stays
+// Wails-agnostic so the swap mechanics remain independently testable.
 //
-// Returns the Apply error verbatim on failure. selfupdate's rollback semantics
-// mean a failed Apply leaves the on-disk binary intact, so it's safe for the
-// caller to keep running.
+// On macOS the relaunch goes through `open -n -a <bundle.app>` so the new
+// process gets a Dock icon, URL scheme registration, and the normal
+// applicationDidFinishLaunching sequence. Spawning the inner Mach-O directly
+// bypasses LaunchServices and produces a generic-icon window with no Dock
+// presence. On Linux and Windows we exec the binary directly since neither
+// platform has an equivalent LaunchServices step.
+//
+// If selfupdate.Apply rolls back successfully on failure, the on-disk binary
+// stays intact and the caller is safe to keep running. If the rollback itself
+// fails (no executable at target path), the returned error names the .old
+// recovery file so the user can fix it by hand.
 func ApplyAndRelaunch(ctx context.Context, asset Asset) error {
-	return applyAndRelaunchTo(ctx, asset, "", "")
+	return applyAndRelaunchTo(ctx, asset, "", "", []string{RelaunchUpdatedFlag})
 }
 
-// applyAndRelaunchTo is ApplyAndRelaunch with overridable swap target +
-// relaunch executable so tests don't replace and spawn the test runner.
-func applyAndRelaunchTo(ctx context.Context, asset Asset, targetPath, launchPath string) error {
+// applyAndRelaunchTo is ApplyAndRelaunch with overridable swap target,
+// relaunch executable, and extra argv so tests don't replace and spawn the
+// test runner and can drop the macOS bundle resolution.
+//
+// When launchPath is non-empty the child is execed directly with launchPath +
+// extraArgs, no platform-specific resolution. This is the test path and the
+// fallback when the running binary isn't inside a .app bundle.
+func applyAndRelaunchTo(ctx context.Context, asset Asset, targetPath, launchPath string, extraArgs []string) error {
 	if err := applyTo(ctx, asset, targetPath); err != nil {
+		if rerr := selfupdate.RollbackError(err); rerr != nil {
+			return fmt.Errorf("apply failed and rollback also failed; recover by renaming .%s.old back to the running binary path: original=%w rollback=%v",
+				binaryBasename(targetPath), err, rerr)
+		}
 		return err
 	}
-	exe := launchPath
-	if exe == "" {
-		got, err := os.Executable()
-		if err != nil {
-			return fmt.Errorf("resolve executable: %w", err)
-		}
-		exe = got
+	cmd, err := relaunchCommand(launchPath, extraArgs)
+	if err != nil {
+		return err
 	}
-	cmd := exec.Command(exe)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("relaunch start: %w", err)
 	}
@@ -234,6 +252,64 @@ func applyAndRelaunchTo(ctx context.Context, asset Asset, targetPath, launchPath
 		return fmt.Errorf("relaunch release: %w", err)
 	}
 	return nil
+}
+
+// relaunchCommand builds the exec.Cmd that boots the swapped binary. When
+// launchPath is set (tests + non-bundle fallback) it execs the path directly
+// with the supplied extra args. When launchPath is empty it resolves the
+// running executable and applies platform conventions: macOS routes through
+// `open -n -a <bundle.app> --args <extraArgs...>` so LaunchServices runs;
+// other platforms exec the binary directly with extraArgs appended.
+func relaunchCommand(launchPath string, extraArgs []string) (*exec.Cmd, error) {
+	if launchPath != "" {
+		return exec.Command(launchPath, extraArgs...), nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("resolve executable: %w", err)
+	}
+	if runtime.GOOS == "darwin" {
+		if bundle, ok := resolveAppBundle(exe); ok {
+			args := []string{"-n", "-a", bundle}
+			if len(extraArgs) > 0 {
+				args = append(args, "--args")
+				args = append(args, extraArgs...)
+			}
+			return exec.Command("open", args...), nil
+		}
+	}
+	return exec.Command(exe, extraArgs...), nil
+}
+
+// resolveAppBundle walks three levels up from a Mach-O inside an .app bundle
+// (MacOS -> Contents -> Foo.app) and returns the bundle path. If the resolved
+// directory does not end in .app, it returns ok=false so the caller falls
+// back to a direct exec rather than running `open` against the wrong path.
+func resolveAppBundle(exe string) (string, bool) {
+	bundle := filepath.Clean(filepath.Join(filepath.Dir(exe), "..", ".."))
+	if !strings.HasSuffix(bundle, ".app") {
+		return "", false
+	}
+	return bundle, true
+}
+
+// binaryBasename extracts the binary's basename without extension for use in
+// rollback recovery error messages. Empty target falls back to "<binary>" so
+// the message stays readable even when callers (tests) pass no path.
+func binaryBasename(targetPath string) string {
+	if targetPath == "" {
+		if exe, err := os.Executable(); err == nil {
+			targetPath = exe
+		}
+	}
+	if targetPath == "" {
+		return "<binary>"
+	}
+	base := filepath.Base(targetPath)
+	if ext := filepath.Ext(base); ext != "" {
+		base = strings.TrimSuffix(base, ext)
+	}
+	return base
 }
 
 // applyTo is Apply with an overridable TargetPath so tests don't replace
