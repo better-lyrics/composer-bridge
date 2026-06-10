@@ -26,7 +26,7 @@ const UpdateBanner: React.FC = () => {
           key="update-banner"
           role="region"
           aria-label="Update available"
-          className="flex flex-col overflow-hidden border-b border-composer-border bg-composer-accent-dark/10"
+          className="flex flex-col overflow-hidden border-b border-composer-border bg-composer-accent-dark/10 will-change-[height,opacity]"
           style={{ "--wails-draggable": "drag" } as React.CSSProperties}
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: "auto", opacity: 1 }}
@@ -91,7 +91,7 @@ const UpdateBanner: React.FC = () => {
             {showNotes && info.notes && (
               <m.div
                 key="update-notes"
-                className="overflow-hidden border-t border-composer-border"
+                className="overflow-hidden border-t border-composer-border will-change-[height,opacity]"
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: "auto", opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
