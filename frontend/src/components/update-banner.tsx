@@ -1,4 +1,4 @@
-import { IconArrowUp, IconDownload, IconX } from "@tabler/icons-react";
+import { IconDownload, IconSquareRoundedArrowUp, IconX } from "@tabler/icons-react";
 import { AnimatePresence, m } from "motion/react";
 import { useState } from "react";
 import { Button } from "@/components/button";
@@ -38,7 +38,7 @@ const UpdateBanner: React.FC = () => {
             style={{ "--wails-draggable": "no-drag" } as React.CSSProperties}
           >
             <div className="flex flex-1 items-center gap-2 select-none">
-              <IconArrowUp size={14} className="text-composer-accent" />
+              <IconSquareRoundedArrowUp size={16} className="text-composer-accent" />
               <span className="text-xs font-medium text-composer-text">Update available</span>
               <span className="font-mono text-[11px] text-composer-text-muted select-text">
                 v{info.latest}
