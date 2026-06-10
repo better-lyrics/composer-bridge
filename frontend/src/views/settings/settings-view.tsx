@@ -7,6 +7,7 @@ import { DiagnosticsSection } from "@/views/settings/sections/diagnostics-sectio
 import { NetworkingSection } from "@/views/settings/sections/networking-section";
 import { ServerSection } from "@/views/settings/sections/server-section";
 import { StorageSection } from "@/views/settings/sections/storage-section";
+import { UpdatesSection } from "@/views/settings/sections/updates-section";
 import { YtdlpSection } from "@/views/settings/sections/ytdlp-section";
 
 // -- Constants ----------------------------------------------------------------
@@ -72,6 +73,7 @@ const SettingsView: React.FC = () => {
             ytdlpVersion={ytdlpVersion}
             update={update}
           />
+          <UpdatesSection bridgeVersion={bridgeVersion} />
           <CookiesSection />
           <StorageSection config={config} update={update} />
           <BehaviorSection config={config} update={update} />

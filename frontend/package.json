@@ -13,6 +13,7 @@
   "dependencies": {
     "@tabler/icons-react": "^3.44.0",
     "clsx": "^2.1.1",
+    "motion": "^12.40.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "tailwind-merge": "^3.6.0",

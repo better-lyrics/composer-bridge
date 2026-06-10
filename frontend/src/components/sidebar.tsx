@@ -18,16 +18,29 @@ const NAV_ITEMS: NavItem[] = [
   { id: "settings", label: "Settings", Icon: IconSettings },
 ];
 
+interface SidebarProps {
+  // bannerVisible signals that the update banner is mounted above the app
+  // shell. When true the sidebar's title-bar inset shrinks so the logo doesn't
+  // sit far below the banner's bottom edge with awkward dead space between
+  // them. The shrink runs on a CSS transition matched to the banner's enter
+  // tween so the two animate in lockstep.
+  bannerVisible?: boolean;
+}
+
 // -- Component ----------------------------------------------------------------
 
-const Sidebar: React.FC = () => {
+const Sidebar: React.FC<SidebarProps> = ({ bannerVisible = false }) => {
   const view = useUIStore((s) => s.view);
   const setView = useUIStore((s) => s.setView);
 
   return (
     <aside className="flex h-full w-52 shrink-0 flex-col border-r border-composer-border bg-composer-bg select-none">
       <div
-        className="flex items-center gap-2 px-4 pt-14 pb-4"
+        className={cn(
+          "flex items-center gap-2 px-4 pb-4 will-change-[padding-top]",
+          "transition-[padding-top] duration-[220ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
+          bannerVisible ? "pt-4" : "pt-14",
+        )}
         style={{ "--wails-draggable": "drag" } as React.CSSProperties}
       >
         <BetterLyricsLogo size={20} />

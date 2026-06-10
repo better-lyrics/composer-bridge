@@ -393,6 +393,198 @@ func TestApply_BadHexChecksum(t *testing.T) {
 	}
 }
 
+// -- ApplyAndRelaunch ---------------------------------------------------------
+
+// TestApplyAndRelaunch_SwapsBinaryAndSpawnsChild proves the end-to-end shape:
+// (a) the on-disk target is replaced with the new payload, and (b) running the
+// new payload produces an observable side effect (the sentinel file the fake
+// "new binary" touches on launch). We use a shell script as the fake binary
+// because the test runner is itself a binary we don't want to swap.
+func TestApplyAndRelaunch_SwapsBinaryAndSpawnsChild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake-binary tests rely on /bin/sh")
+	}
+	shortenRetryBackoff(t)
+
+	dir := t.TempDir()
+	sentinel := filepath.Join(dir, "child-ran.txt")
+	payload := []byte("#!/bin/sh\ntouch " + sentinel + "\n")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	t.Cleanup(srv.Close)
+
+	targetPath := filepath.Join(dir, "fake-bridge")
+	if err := os.WriteFile(targetPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("seed target: %v", err)
+	}
+
+	asset := Asset{URL: srv.URL, SHA256: computeSHA256Hex(payload)}
+	if err := applyAndRelaunchTo(context.Background(), asset, targetPath, targetPath, nil); err != nil {
+		t.Fatalf("applyAndRelaunchTo: %v", err)
+	}
+
+	got, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("target contents not swapped: got %q, want %q", got, payload)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sentinel); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("relaunched child never touched sentinel %q; spawn did not detach correctly", sentinel)
+}
+
+// TestApplyAndRelaunch_DoesNotSpawnWhenApplyFails confirms the relaunch step is
+// gated on a successful swap. A checksum mismatch must return the Apply error
+// verbatim with no child process, so the caller can keep running on the old
+// binary without surprise relaunches.
+func TestApplyAndRelaunch_DoesNotSpawnWhenApplyFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake-binary tests rely on /bin/sh")
+	}
+	shortenRetryBackoff(t)
+
+	dir := t.TempDir()
+	sentinel := filepath.Join(dir, "should-not-exist.txt")
+	payload := []byte("#!/bin/sh\ntouch " + sentinel + "\n")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	t.Cleanup(srv.Close)
+
+	targetPath := filepath.Join(dir, "fake-bridge")
+	original := []byte("#!/bin/sh\nexit 0\n")
+	if err := os.WriteFile(targetPath, original, 0o755); err != nil {
+		t.Fatalf("seed target: %v", err)
+	}
+
+	asset := Asset{URL: srv.URL, SHA256: computeSHA256Hex([]byte("wrong"))}
+	if err := applyAndRelaunchTo(context.Background(), asset, targetPath, targetPath, nil); err == nil {
+		t.Fatal("applyAndRelaunchTo: got nil error on checksum mismatch")
+	}
+
+	got, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Errorf("target was modified despite checksum failure: got %q", got)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(sentinel); err == nil {
+		t.Errorf("child spawned despite Apply failure; sentinel %q exists", sentinel)
+	}
+}
+
+// TestApplyAndRelaunch_PassesExtraArgsToChild proves the parent forwards every
+// argument in extraArgs to the relaunched child. RelaunchUpdatedFlag is the
+// only real caller, so this exercises the SingleInstanceLock handshake by
+// having the fake child write its own argv to a sentinel file. Without this
+// guarantee the child cannot tell it was relaunched from an update and will
+// race the parent's flock instead of sleeping first.
+//
+// The script loops $@ explicitly rather than relying on printf reusing its
+// format because some sh implementations (e.g. dash) only emit the first arg
+// when printf is the very last redirection before exit.
+func TestApplyAndRelaunch_PassesExtraArgsToChild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake-binary tests rely on /bin/sh")
+	}
+	shortenRetryBackoff(t)
+
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv.txt")
+	payload := []byte("#!/bin/sh\nfor a in \"$@\"; do echo \"$a\" >> " + argvFile + "; done\n")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	t.Cleanup(srv.Close)
+
+	targetPath := filepath.Join(dir, "fake-bridge")
+	if err := os.WriteFile(targetPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("seed target: %v", err)
+	}
+
+	asset := Asset{URL: srv.URL, SHA256: computeSHA256Hex(payload)}
+	if err := applyAndRelaunchTo(context.Background(), asset, targetPath, targetPath, []string{RelaunchUpdatedFlag, "another"}); err != nil {
+		t.Fatalf("applyAndRelaunchTo: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var got string
+	for time.Now().Before(deadline) {
+		if data, err := os.ReadFile(argvFile); err == nil && strings.Contains(string(data), "another") {
+			got = string(data)
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got == "" {
+		// One last read so the error message shows whatever the child wrote
+		// before timing out, instead of an empty string.
+		if data, _ := os.ReadFile(argvFile); len(data) > 0 {
+			got = string(data)
+		}
+		t.Fatalf("child argv never contained both args; got %q", got)
+	}
+	if !strings.Contains(got, RelaunchUpdatedFlag) {
+		t.Errorf("argv missing %q: got %q", RelaunchUpdatedFlag, got)
+	}
+}
+
+// TestResolveAppBundle covers the macOS bundle walk used by the default
+// relaunch path. The success case has to land on a .app suffix or
+// applyAndRelaunchTo falls back to direct exec (so we never run `open` on a
+// path that points at the wrong thing).
+func TestResolveAppBundle(t *testing.T) {
+	cases := []struct {
+		name     string
+		exe      string
+		wantOK   bool
+		wantPath string
+	}{
+		{
+			name:     "valid bundle path",
+			exe:      "/Applications/Composer Bridge.app/Contents/MacOS/composer-bridge",
+			wantOK:   true,
+			wantPath: "/Applications/Composer Bridge.app",
+		},
+		{
+			name:   "not under a .app",
+			exe:    "/usr/local/bin/composer-bridge",
+			wantOK: false,
+		},
+		{
+			name:   "two levels up but no .app suffix",
+			exe:    "/opt/foo/Contents/MacOS/composer-bridge",
+			wantOK: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := resolveAppBundle(tc.exe)
+			if ok != tc.wantOK {
+				t.Errorf("ok: got %v, want %v", ok, tc.wantOK)
+			}
+			if tc.wantOK && got != tc.wantPath {
+				t.Errorf("path: got %q, want %q", got, tc.wantPath)
+			}
+		})
+	}
+}
+
 // -- PollDaily ----------------------------------------------------------------
 
 func TestPollDaily_ImmediateCheckFiresOnAvailable(t *testing.T) {

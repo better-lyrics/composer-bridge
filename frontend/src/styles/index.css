@@ -155,6 +155,37 @@ a:focus-visible {
   }
 }
 
+/* Slim, theme-tinted scrollbars across the app. Firefox uses the standard
+   scrollbar-* properties; WebKit needs the legacy pseudo-element overrides.
+   Track stays transparent so the scrollbar reads as a faint overlay rather
+   than its own column of chrome. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-composer-border-hover) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-composer-border-hover);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: hsla(0, 0%, 100%, 0.25);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
