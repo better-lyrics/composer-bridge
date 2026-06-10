@@ -34,7 +34,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-const Version = "1.2.2"
+const Version = "1.3.0"
 
 func main() {
 	dataDir := resolveDataDir()
@@ -96,6 +96,7 @@ func main() {
 		YtdlpVersion:       getYtdlpVersion,
 		CookiesPath:        a.CookiesPath,
 		PreferPremiumAudio: a.PreferPremiumAudio,
+		DownloadDir:        a.DownloadDir,
 		ThumbDir:           filepath.Join(dataDir, "thumbs"),
 		Bridge:             Version,
 		AudioFormat:        cfg.AudioFormat,

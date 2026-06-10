@@ -68,12 +68,20 @@ type Handlers struct {
 	// effect immediately. A nil callback is treated as false. Gated by the
 	// App so the flag only takes effect when cookies are also live.
 	PreferPremiumAudio func() bool
-	ThumbDir           string
-	Bridge             string
-	AudioFormat        string
-	Emitter            events.Emitter
-	EmitterCtx         context.Context
-	State              *bridgestate.Holder
+	// DownloadDir returns the absolute path of the user-configured audio
+	// download root. Read on every request so a config change takes effect
+	// immediately. A nil callback (or empty return) disables the cache-first
+	// audio path, leaving every /audio/{id} request to stream via yt-dlp.
+	// The Audio handler only serves cached files whose track.AudioPath
+	// resolves to a location under this root, mirroring the ThumbDir guard
+	// used by Thumb.
+	DownloadDir func() string
+	ThumbDir    string
+	Bridge      string
+	AudioFormat string
+	Emitter     events.Emitter
+	EmitterCtx  context.Context
+	State       *bridgestate.Holder
 }
 
 // Router returns the bridge's HTTP mux. Wrap with WithCORS at the call site for browser access.
@@ -108,6 +116,16 @@ func (h *Handlers) preferPremium() bool {
 	return h.PreferPremiumAudio()
 }
 
+// downloadDir returns the live audio download root via the callback, or ""
+// when no callback is wired. Centralized so the cache-first guard reads the
+// same value on every request.
+func (h *Handlers) downloadDir() string {
+	if h.DownloadDir == nil {
+		return ""
+	}
+	return h.DownloadDir()
+}
+
 // Health returns bridge version, yt-dlp version, and a literal "ok" status. Field names are locked to Composer's BridgeHealth interface.
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	var ver string
@@ -123,39 +141,33 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Audio streams the bestaudio track for videoID. Wraps the call in an activity row so the Activity feed shows "downloading X" in real time. Returns 502 JSON if yt-dlp fails before any bytes flow, otherwise the connection is closed mid-stream. Before streaming, the handler fetches metadata so it can set X-Track-Title and X-Track-Artist response headers (used by Composer to populate the project title) and persist the track to the library so the bridge UI sees it.
+// Audio serves the bestaudio track for videoID. When a previous /download has
+// landed the file under the configured DownloadDir, the handler serves the
+// cached copy via http.ServeFile (which handles Range requests natively, so
+// seeking works); otherwise it falls through to a live yt-dlp stream wrapped
+// in an activity row. Returns 502 JSON if the stream fails before any bytes
+// flow, otherwise the connection is closed mid-stream. Track metadata is
+// fetched up front so the X-Track-* headers are populated identically on both
+// branches, and so a brand-new video gets persisted to the library either way.
 func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	videoID := r.PathValue("id")
 	if !ytdlp.VideoIDRe.MatchString(videoID) {
 		writeError(w, http.StatusBadRequest, "invalid video id")
 		return
 	}
+	track := h.resolveTrackForAudio(r.Context(), videoID)
+	if h.serveCachedAudio(w, r, track) {
+		return
+	}
 	format := h.AudioFormat
 	if format == "" {
 		format = "opus"
 	}
-	track := h.resolveTrackForAudio(r.Context(), videoID)
 	actID := h.startActivity(activity.KindAudioDownload, videoID)
 	if h.State != nil {
 		h.State.StartDownload(videoID)
 	}
-	w.Header().Set("Content-Type", audioContentType(format))
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Bridge-Version", h.Bridge)
-	if track != nil {
-		// HTTP headers are Latin-1 by spec; raw UTF-8 gets mojibake'd in the browser.
-		// Percent-encode so the client can decodeURIComponent it back to the original string.
-		w.Header().Set("Access-Control-Expose-Headers", "X-Track-Title, X-Track-Artist, X-Track-Album, X-Bridge-Version")
-		if track.Title != "" {
-			w.Header().Set("X-Track-Title", url.PathEscape(track.Title))
-		}
-		if track.Artist != "" {
-			w.Header().Set("X-Track-Artist", url.PathEscape(track.Artist))
-		}
-		if track.Album != "" {
-			w.Header().Set("X-Track-Album", url.PathEscape(track.Album))
-		}
-	}
+	h.writeAudioHeaders(w, audioContentType(format), track)
 	tw := &trackingWriter{rw: w}
 	streamCtx, cancel := context.WithTimeout(r.Context(), audioStreamTTL)
 	defer cancel()
@@ -176,6 +188,64 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, http.StatusBadGateway, fmt.Sprintf("yt-dlp failed for %s", videoID))
+}
+
+// writeAudioHeaders writes the headers shared between the cache-hit and
+// streaming branches of Audio. contentType is the negotiated MIME type: for
+// cache hits it is derived from the on-disk extension, for streams from the
+// configured AudioFormat. track is optional; when set the X-Track-* metadata
+// headers (and the matching CORS expose list) are emitted so Composer can
+// populate the project title without a second round trip.
+func (h *Handlers) writeAudioHeaders(w http.ResponseWriter, contentType string, track *library.Track) {
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Bridge-Version", h.Bridge)
+	if track == nil {
+		return
+	}
+	// HTTP headers are Latin-1 by spec; raw UTF-8 gets mojibake'd in the browser.
+	// Percent-encode so the client can decodeURIComponent it back to the original string.
+	w.Header().Set("Access-Control-Expose-Headers", "X-Track-Title, X-Track-Artist, X-Track-Album, X-Bridge-Version")
+	if track.Title != "" {
+		w.Header().Set("X-Track-Title", url.PathEscape(track.Title))
+	}
+	if track.Artist != "" {
+		w.Header().Set("X-Track-Artist", url.PathEscape(track.Artist))
+	}
+	if track.Album != "" {
+		w.Header().Set("X-Track-Album", url.PathEscape(track.Album))
+	}
+}
+
+// serveCachedAudio attempts to serve the audio file recorded on track from
+// disk. Returns true when the response has been written (cache hit); false to
+// signal that the caller should fall through to the streaming path. Mirrors
+// the Thumb cache guard: requires the file to be (a) recorded on the library
+// row, (b) located under the configured DownloadDir so a stale DB row can't
+// point the handler at an arbitrary filesystem path, (c) present on disk.
+// Content-Type is inferred from the on-disk extension rather than h.AudioFormat
+// because the user may have downloaded in one format then switched the setting.
+// Cache hits are intentionally silent: no activity row, no State flip, so the
+// tray's "downloading X" indicator stays accurate and the Activity feed only
+// shows actual yt-dlp work.
+func (h *Handlers) serveCachedAudio(w http.ResponseWriter, r *http.Request, track *library.Track) bool {
+	if track == nil || track.AudioPath == "" {
+		return false
+	}
+	root := h.downloadDir()
+	if root == "" {
+		return false
+	}
+	if !pathIsUnder(track.AudioPath, root) {
+		return false
+	}
+	if _, err := os.Stat(track.AudioPath); err != nil {
+		return false
+	}
+	ext := strings.TrimPrefix(filepath.Ext(track.AudioPath), ".")
+	h.writeAudioHeaders(w, audioContentType(ext), track)
+	http.ServeFile(w, r, track.AudioPath)
+	return true
 }
 
 // resolveTrackForAudio returns the library entry for videoID, fetching and

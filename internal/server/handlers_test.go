@@ -695,6 +695,260 @@ func TestAudio_YtdlpFailsAfterFirstByteClosesWithoutJSONError(t *testing.T) {
 	}
 }
 
+// -- Audio cache-first ---------------------------------------------------------
+
+// seedDownloadedTrack writes audioBytes to a file under env's per-test download
+// directory (also wired into env.handlers.DownloadDir), inserts a matching
+// library row whose AudioPath points at that file, and returns the absolute
+// path on disk. ext drives both the filename suffix and the on-disk extension
+// the cache-hit branch infers Content-Type from. Helper exists because every
+// cache-hit test wants the same three-step setup; spelling each out inline
+// makes the tests look like they're testing the setup, not the behavior.
+func seedDownloadedTrack(t *testing.T, env *testEnv, videoID, ext string, audioBytes []byte) string {
+	t.Helper()
+	dlDir := filepath.Join(t.TempDir(), "downloads")
+	if err := os.MkdirAll(dlDir, 0o755); err != nil {
+		t.Fatalf("mkdir downloads: %v", err)
+	}
+	env.handlers.DownloadDir = func() string { return dlDir }
+	dest := filepath.Join(dlDir, videoID+"."+ext)
+	if err := os.WriteFile(dest, audioBytes, 0o644); err != nil {
+		t.Fatalf("write cached audio: %v", err)
+	}
+	seedTrack(t, env.lib, library.Track{
+		VideoID: videoID, Title: "Title", Artist: "Artist", Album: "Album",
+		DurationSec: 10, ThumbnailURL: "http://example.invalid/x.jpg",
+		SourceURL: "https://www.youtube.com/watch?v=" + videoID, ImportedAt: 1,
+		AudioPath: dest, AudioSize: int64(len(audioBytes)),
+	})
+	return dest
+}
+
+func TestAudio_ServesCachedFileWhenAudioPathExists(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'streamed-not-cached'`))
+	audioBytes := []byte("cached audio payload")
+	seedDownloadedTrack(t, env, "RgKAFK5djSk", "opus", audioBytes)
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get /audio: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status: got %d, want 200", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "audio/webm" {
+		t.Errorf("content-type: got %q, want audio/webm (opus on disk)", got)
+	}
+	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+		t.Errorf("cache-control: got %q, want no-store", got)
+	}
+	if got := resp.Header.Get("X-Bridge-Version"); got != env.handlers.Bridge {
+		t.Errorf("x-bridge-version: got %q, want %q", got, env.handlers.Bridge)
+	}
+	if got := resp.Header.Get("X-Track-Title"); got != "Title" {
+		t.Errorf("x-track-title: got %q, want %q", got, "Title")
+	}
+	if got := resp.Header.Get("X-Track-Artist"); got != "Artist" {
+		t.Errorf("x-track-artist: got %q, want %q", got, "Artist")
+	}
+	if got := resp.Header.Get("X-Track-Album"); got != "Album" {
+		t.Errorf("x-track-album: got %q, want %q", got, "Album")
+	}
+	if got := resp.Header.Get("Access-Control-Expose-Headers"); !strings.Contains(got, "X-Track-Title") {
+		t.Errorf("access-control-expose-headers: got %q, want list with X-Track-Title", got)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !bytes.Equal(body, audioBytes) {
+		t.Errorf("body bytes mismatch: got %d bytes, want %d (cache hit must return on-disk payload, not fake yt-dlp output)", len(body), len(audioBytes))
+	}
+
+	// Cache hits must not log to the activity feed; the streaming path is the
+	// only thing worth surfacing in the bridge UI.
+	entries, err := env.act.Recent(1)
+	if err != nil {
+		t.Fatalf("activity.Recent: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("cache hit unexpectedly wrote activity entry: %+v", entries)
+	}
+}
+
+func TestAudio_FallsThroughToStreamWhenFileMissing(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'stream payload'`))
+	dest := seedDownloadedTrack(t, env, "RgKAFK5djSk", "opus", []byte("ignored"))
+	if err := os.Remove(dest); err != nil {
+		t.Fatalf("delete cached audio: %v", err)
+	}
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get /audio: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status: got %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "stream payload" {
+		t.Errorf("body: got %q, want stream payload (must fall through to yt-dlp when file is gone)", body)
+	}
+	entry := env.lastActivity()
+	if entry.Status != activity.StatusOK || entry.Kind != activity.KindAudioDownload {
+		t.Errorf("activity: got %+v, want kind=audio_download status=ok (streaming path must log)", entry)
+	}
+}
+
+func TestAudio_FallsThroughWhenAudioPathOutsideDownloadDir(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'stream payload'`))
+	dlDir := filepath.Join(t.TempDir(), "downloads")
+	if err := os.MkdirAll(dlDir, 0o755); err != nil {
+		t.Fatalf("mkdir downloads: %v", err)
+	}
+	env.handlers.DownloadDir = func() string { return dlDir }
+
+	outsideDir := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.MkdirAll(outsideDir, 0o755); err != nil {
+		t.Fatalf("mkdir elsewhere: %v", err)
+	}
+	outside := filepath.Join(outsideDir, "RgKAFK5djSk.opus")
+	if err := os.WriteFile(outside, []byte("should not be served"), 0o644); err != nil {
+		t.Fatalf("write outside: %v", err)
+	}
+	seedTrack(t, env.lib, library.Track{
+		VideoID: "RgKAFK5djSk", Title: "x", DurationSec: 10,
+		ThumbnailURL: "http://example.invalid/x.jpg",
+		SourceURL:    "https://www.youtube.com/watch?v=RgKAFK5djSk", ImportedAt: 1,
+		AudioPath: outside, AudioSize: 20,
+	})
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get /audio: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "stream payload" {
+		t.Errorf("body: got %q, want stream payload (DB row pointing outside DownloadDir must NOT be served)", body)
+	}
+}
+
+func TestAudio_FallsThroughWhenDownloadDirCallbackNil(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'stream payload'`))
+	// Seed a track with AudioPath set, but never wire DownloadDir.
+	dest := filepath.Join(t.TempDir(), "RgKAFK5djSk.opus")
+	if err := os.WriteFile(dest, []byte("cached"), 0o644); err != nil {
+		t.Fatalf("write cached: %v", err)
+	}
+	seedTrack(t, env.lib, library.Track{
+		VideoID: "RgKAFK5djSk", Title: "x", DurationSec: 10,
+		ThumbnailURL: "http://example.invalid/x.jpg",
+		SourceURL:    "https://www.youtube.com/watch?v=RgKAFK5djSk", ImportedAt: 1,
+		AudioPath: dest, AudioSize: 6,
+	})
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get /audio: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "stream payload" {
+		t.Errorf("body: got %q, want stream payload (nil DownloadDir must disable cache-first)", body)
+	}
+}
+
+func TestAudio_CacheHitContentTypeFromExtension(t *testing.T) {
+	// AudioFormat on the handler is intentionally a different format than what's
+	// on disk so a regression that reads h.AudioFormat instead of the extension
+	// shows up immediately.
+	cases := []struct {
+		ext         string
+		wantContent string
+	}{
+		{"opus", "audio/webm"},
+		{"webm", "audio/webm"},
+		{"m4a", "audio/mp4"},
+		{"mp3", "audio/mpeg"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.ext, func(t *testing.T) {
+			env := newTestEnv(t, "/nonexistent")
+			env.handlers.AudioFormat = "mp3" // intentionally wrong vs. on-disk
+			seedDownloadedTrack(t, env, "RgKAFK5djSk", tc.ext, []byte("cached"))
+
+			resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			defer resp.Body.Close()
+			if got := resp.Header.Get("Content-Type"); got != tc.wantContent {
+				t.Errorf(".%s on disk: content-type got %q, want %q", tc.ext, got, tc.wantContent)
+			}
+		})
+	}
+}
+
+func TestAudio_CacheHitSupportsRangeRequest(t *testing.T) {
+	env := newTestEnv(t, "/nonexistent")
+	audioBytes := []byte("0123456789abcdef")
+	seedDownloadedTrack(t, env, "RgKAFK5djSk", "opus", audioBytes)
+
+	req, _ := http.NewRequest(http.MethodGet, env.server.URL+"/audio/RgKAFK5djSk", nil)
+	req.Header.Set("Range", "bytes=2-5")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusPartialContent {
+		t.Errorf("status: got %d, want 206 (http.ServeFile must honor Range)", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "2345" {
+		t.Errorf("partial body: got %q, want %q", body, "2345")
+	}
+}
+
+func TestAudio_CacheHitDoesNotFlipDownloadState(t *testing.T) {
+	env := newTestEnv(t, "/nonexistent")
+	holder := bridgestate.NewHolder()
+	env.handlers.State = holder
+
+	var sawActive bool
+	var mu sync.Mutex
+	t.Cleanup(holder.OnChange(func(s bridgestate.State) {
+		mu.Lock()
+		defer mu.Unlock()
+		if s.Download == bridgestate.DownloadActive {
+			sawActive = true
+		}
+	}))
+
+	seedDownloadedTrack(t, env, "RgKAFK5djSk", "opus", []byte("cached"))
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if sawActive {
+		t.Error("cache hit flipped Download to Active; tray would show false 'downloading' status")
+	}
+	if got := holder.Snapshot().Download; got != bridgestate.DownloadIdle {
+		t.Errorf("final Download: got %q, want %q", got, bridgestate.DownloadIdle)
+	}
+}
+
 // -- Emitter integration -------------------------------------------------------
 
 type recordedEmission struct {
