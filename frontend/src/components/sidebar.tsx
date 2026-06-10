@@ -1,8 +1,17 @@
 import { IconActivity, IconMusic, IconSettings } from "@tabler/icons-react";
+import { m } from "motion/react";
 import { BetterLyricsLogo } from "@/components/better-lyrics-logo";
 import { SidebarStatus } from "@/components/sidebar-status";
 import { useUIStore, type View } from "@/stores/ui-store";
 import { cn } from "@/utils/cn";
+
+// Spring tuned for ~180ms effective settle with no overshoot, the iOS-feeling
+// reflow profile the user asked for. Shared by every layout-animated child of
+// the sidebar column so the header, nav, and status footer all move together
+// when the banner mounts or unmounts above them.
+const LAYOUT_TRANSITION = {
+  layout: { type: "spring" as const, stiffness: 500, damping: 45 },
+};
 
 // -- Constants ----------------------------------------------------------------
 
@@ -34,7 +43,9 @@ const Sidebar: React.FC<SidebarProps> = ({ bannerVisible = false }) => {
 
   return (
     <aside className="flex h-full w-52 shrink-0 flex-col border-r border-composer-border bg-composer-bg select-none">
-      <div
+      <m.div
+        layout
+        transition={LAYOUT_TRANSITION}
         className={cn(
           "flex items-center gap-2 px-4 pb-4",
           bannerVisible ? "pt-4" : "pt-14",
@@ -45,8 +56,10 @@ const Sidebar: React.FC<SidebarProps> = ({ bannerVisible = false }) => {
         <span className="text-sm font-semibold tracking-tight text-composer-text">
           Composer Bridge
         </span>
-      </div>
-      <nav
+      </m.div>
+      <m.nav
+        layout
+        transition={LAYOUT_TRANSITION}
         className="flex flex-1 flex-col gap-1 px-2 py-2"
         style={{ "--wails-draggable": "no-drag" } as React.CSSProperties}
       >
@@ -70,13 +83,15 @@ const Sidebar: React.FC<SidebarProps> = ({ bannerVisible = false }) => {
             </button>
           );
         })}
-      </nav>
-      <div
+      </m.nav>
+      <m.div
+        layout
+        transition={LAYOUT_TRANSITION}
         className="mt-auto px-2 pb-3"
         style={{ "--wails-draggable": "no-drag" } as React.CSSProperties}
       >
         <SidebarStatus />
-      </div>
+      </m.div>
     </aside>
   );
 };

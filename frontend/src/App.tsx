@@ -1,3 +1,4 @@
+import { domAnimation, LayoutGroup, LazyMotion } from "motion/react";
 import { Sidebar } from "@/components/sidebar";
 import { UpdateBanner } from "@/components/update-banner";
 import { useBridgeStatus } from "@/hooks/use-bridge-status";
@@ -20,15 +21,23 @@ const App: React.FC = () => {
   const { showBanner } = useUpdateInfo();
 
   return (
-    <div className="flex h-full flex-col bg-composer-bg text-composer-text">
-      <UpdateBanner />
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar bannerVisible={showBanner} />
-        <main className="flex-1 overflow-auto">
-          <ActiveView />
-        </main>
-      </div>
-    </div>
+    <LazyMotion features={domAnimation} strict>
+      {/* LayoutGroup wraps every element that participates in the banner-mount
+          reflow so they share one snapshot cycle. Without it the sidebar
+          header would snap to its new position while the banner is still
+          tweening, producing the "jump" the user was seeing. */}
+      <LayoutGroup>
+        <div className="flex h-full flex-col bg-composer-bg text-composer-text">
+          <UpdateBanner />
+          <div className="flex flex-1 overflow-hidden">
+            <Sidebar bannerVisible={showBanner} />
+            <main className="flex-1 overflow-auto">
+              <ActiveView />
+            </main>
+          </div>
+        </div>
+      </LayoutGroup>
+    </LazyMotion>
   );
 };
 
