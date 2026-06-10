@@ -25,6 +25,7 @@ import (
 	"github.com/better-lyrics/composer-bridge/internal/config"
 	"github.com/better-lyrics/composer-bridge/internal/library"
 	"github.com/better-lyrics/composer-bridge/internal/server"
+	"github.com/better-lyrics/composer-bridge/internal/updater"
 	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
 	"github.com/better-lyrics/composer-bridge/tray"
 
@@ -41,10 +42,22 @@ var (
 	activeApp *App
 )
 
+const (
+	// updateCheckTimeout caps a single CheckForUpdates manifest fetch.
+	// Generous enough for slow networks; still cuts off long hangs that would
+	// otherwise leave the Settings "Checking..." state stuck.
+	updateCheckTimeout = 30 * time.Second
+	// updateInstallTimeout caps the InstallUpdate apply (download + atomic
+	// swap + relaunch). The default asset fetch deadline inside updater
+	// already covers download; this is the outer ceiling.
+	updateInstallTimeout = 5 * time.Minute
+)
+
 // App wires the bridge's storage and config into Wails-callable methods.
 // Wails dispatches JS calls on separate goroutines, so any field a method both
-// reads and writes needs mutex protection. mu guards cfg, downloadDir, and
-// ytdlpPath; everything else is set once in New and never mutated.
+// reads and writes needs mutex protection. mu guards cfg, downloadDir,
+// ytdlpPath, and latestUpdate; everything else is set once in New and never
+// mutated.
 type App struct {
 	library       *library.Library
 	activity      *activity.Log
@@ -66,6 +79,7 @@ type App struct {
 	cfg           config.Config
 	downloadDir   string
 	ytdlpPath     string
+	latestUpdate  *updater.UpdateInfo
 }
 
 // New builds an App. Caller retains ownership of lib and act: App does not close them.
@@ -153,6 +167,71 @@ func (a *App) Shutdown(_ context.Context) {
 // Startup runs.
 func (a *App) Ctx() context.Context {
 	return a.ctx
+}
+
+// SetLatestUpdate stashes the most recent UpdateInfo so a freshly mounted
+// frontend can pull it via LatestUpdate without waiting for the next 24h
+// poll. Called from main.go's PollDaily onAvailable callback (and from
+// CheckForUpdates on manual trigger). Nil clears the stash, which the UI
+// reads as "no update available".
+func (a *App) SetLatestUpdate(info *updater.UpdateInfo) {
+	a.mu.Lock()
+	a.latestUpdate = info
+	a.mu.Unlock()
+}
+
+// LatestUpdate is Wails-bound. Returns the stashed UpdateInfo or nil if the
+// poller hasn't seen anything yet. Returning a value is safe for marshaling
+// because UpdateInfo is a plain struct; the pointer is only used so the
+// frontend can distinguish "no info yet" from "info, not available".
+func (a *App) LatestUpdate() *updater.UpdateInfo {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.latestUpdate
+}
+
+// CheckForUpdates is Wails-bound. Triggers a one-shot manifest fetch, stashes
+// the result, and emits bridge:update-available so any open window updates its
+// banner. Returns the same UpdateInfo so the caller can render inline status
+// (e.g. "Up to date" vs "Update available v1.4.0") without listening for the
+// event. Does not take a ctx parameter on purpose: Wails would auto-inject it
+// but still show the arg in the generated TS binding, which is awkward at the
+// call site. We bound the fetch with our own timeout instead.
+func (a *App) CheckForUpdates() (*updater.UpdateInfo, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeout)
+	defer cancel()
+	info, err := updater.Check(ctx, updater.DefaultManifestURL, a.version, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return nil, err
+	}
+	a.SetLatestUpdate(info)
+	if appCtx := a.Ctx(); appCtx != nil {
+		wailsRuntime.EventsEmit(appCtx, "bridge:update-available", info)
+	}
+	return info, nil
+}
+
+// InstallUpdate is Wails-bound. Applies the swap recorded by the last poll or
+// CheckForUpdates call, then asks Wails to quit so the OnShutdown chain runs
+// cleanly (HTTP server stop, tray stop, App.Shutdown) before the replacement
+// process inherits the system tray + autostart slot. Errors when no update is
+// available so the frontend can surface a friendly message rather than a
+// silent no-op. No ctx parameter for the same reason as CheckForUpdates.
+func (a *App) InstallUpdate() error {
+	info := a.LatestUpdate()
+	if info == nil || !info.Available {
+		return errors.New("no update available")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), updateInstallTimeout)
+	defer cancel()
+	if err := updater.ApplyAndRelaunch(ctx, info.Asset); err != nil {
+		return fmt.Errorf("apply update: %w", err)
+	}
+	a.MarkQuitting()
+	if appCtx := a.Ctx(); appCtx != nil {
+		wailsRuntime.Quit(appCtx)
+	}
+	return nil
 }
 
 // OnBeforeClose is wired into options.App.OnBeforeClose. Two paths land here:

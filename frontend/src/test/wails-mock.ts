@@ -1,5 +1,5 @@
 import { vi, type Mock } from "vitest";
-import type { activity, app, bridgestate, config, library, ytdlp } from "../../wailsjs/go/models";
+import type { activity, app, bridgestate, config, library, updater, ytdlp } from "../../wailsjs/go/models";
 
 // AppBindings mirrors the auto-generated wailsjs/go/app/App.d.ts surface.
 // All fields are vi.fn() so tests can assert call shape and override returns.
@@ -30,6 +30,10 @@ export interface AppBindings {
   SetCookiesEnabled: Mock<(enabled: boolean) => Promise<void>>;
   SetPreferPremiumAudio: Mock<(enabled: boolean) => Promise<void>>;
   VerifyCookies: Mock<() => Promise<ytdlp.VerifyResult>>;
+  LatestUpdate: Mock<() => Promise<updater.UpdateInfo | null>>;
+  SetLatestUpdate: Mock<(info: updater.UpdateInfo) => Promise<void>>;
+  CheckForUpdates: Mock<() => Promise<updater.UpdateInfo>>;
+  InstallUpdate: Mock<() => Promise<void>>;
 }
 
 const DEFAULT_CONFIG = {
@@ -117,6 +121,19 @@ export function setupWailsMock(overrides: Partial<AppBindings> = {}): AppBinding
       rotated: false,
       detail: "",
     } as ytdlp.VerifyResult),
+    LatestUpdate: vi.fn<() => Promise<updater.UpdateInfo | null>>().mockResolvedValue(null),
+    SetLatestUpdate: vi
+      .fn<(info: updater.UpdateInfo) => Promise<void>>()
+      .mockResolvedValue(undefined),
+    CheckForUpdates: vi.fn<() => Promise<updater.UpdateInfo>>().mockResolvedValue({
+      available: false,
+      current: "0.1.0-test",
+      latest: "0.1.0-test",
+      released_at: new Date(0).toISOString(),
+      notes: "",
+      asset: { url: "", sha256: "" },
+    } as unknown as updater.UpdateInfo),
+    InstallUpdate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     ...overrides,
   };
   (window as unknown as { go: { app: { App: AppBindings } } }).go = {

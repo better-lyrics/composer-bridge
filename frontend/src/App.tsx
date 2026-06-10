@@ -1,4 +1,5 @@
 import { Sidebar } from "@/components/sidebar";
+import { UpdateBanner } from "@/components/update-banner";
 import { useBridgeStatus } from "@/hooks/use-bridge-status";
 import { useUIStore, type View } from "@/stores/ui-store";
 import { ActivityView } from "@/views/activity/activity-view";
@@ -17,11 +18,14 @@ const App: React.FC = () => {
   useBridgeStatus();
 
   return (
-    <div className="flex h-full bg-composer-bg text-composer-text">
-      <Sidebar />
-      <main className="flex-1 overflow-auto">
-        <ActiveView />
-      </main>
+    <div className="flex h-full flex-col bg-composer-bg text-composer-text">
+      <UpdateBanner />
+      <div className="flex flex-1 overflow-hidden">
+        <Sidebar />
+        <main className="flex-1 overflow-auto">
+          <ActiveView />
+        </main>
+      </div>
     </div>
   );
 };

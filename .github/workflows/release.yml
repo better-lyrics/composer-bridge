@@ -246,6 +246,18 @@ jobs:
              "release/composer-bridge-${VERSION}-darwin-arm64.zip"
           cp artifacts/bridge-darwin-universal/bridge-darwin-universal.zip \
              "release/composer-bridge-${VERSION}-darwin-universal.zip"
+          # Raw Mach-O binary so the in-app updater (selfupdate.Apply) can
+          # consume it directly without unpacking a DMG. The Go binary embeds
+          # the frontend via go:embed, so swapping just the inner executable
+          # is sufficient. Naming: -bin suffix distinguishes from the .zip.
+          unzip -p "artifacts/bridge-darwin-arm64/bridge-darwin-arm64.zip" \
+            "composer-bridge.app/Contents/MacOS/composer-bridge" \
+            > "release/composer-bridge-${VERSION}-darwin-arm64-bin"
+          unzip -p "artifacts/bridge-darwin-universal/bridge-darwin-universal.zip" \
+            "composer-bridge.app/Contents/MacOS/composer-bridge" \
+            > "release/composer-bridge-${VERSION}-darwin-universal-bin"
+          chmod +x "release/composer-bridge-${VERSION}-darwin-arm64-bin" \
+                   "release/composer-bridge-${VERSION}-darwin-universal-bin"
 
       - name: Stage Windows artifacts
         env:
@@ -258,6 +270,9 @@ jobs:
           fi
           # Always ship the portable .zip too.
           (cd artifacts/bridge-windows-amd64 && zip -q "${GITHUB_WORKSPACE}/release/composer-bridge-${VERSION}-windows-amd64.zip" composer-bridge.exe)
+          # Raw .exe for the in-app updater.
+          cp artifacts/bridge-windows-amd64/composer-bridge.exe \
+             "release/composer-bridge-${VERSION}-windows-amd64.exe"
 
       - name: Build Linux AppImage + tarball
         env:
@@ -288,6 +303,10 @@ jobs:
             "release/composer-bridge-${VERSION}-linux-amd64.AppImage"
           tar -C artifacts/bridge-linux-amd64 -czf \
             "release/composer-bridge-${VERSION}-linux-amd64.tar.gz" composer-bridge
+          # Raw ELF binary for the in-app updater.
+          cp artifacts/bridge-linux-amd64/composer-bridge \
+             "release/composer-bridge-${VERSION}-linux-amd64-bin"
+          chmod +x "release/composer-bridge-${VERSION}-linux-amd64-bin"
 
       - name: Copy install script
         run: |
@@ -305,13 +324,15 @@ jobs:
           BASE="https://github.com/better-lyrics/composer-bridge/releases/download/${TAG}"
           RELEASED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          ARM64_ASSET="Composer-Bridge-${VERSION}-darwin-arm64.dmg"
-          UNIVERSAL_ASSET="Composer-Bridge-${VERSION}-darwin-universal.dmg"
-          LINUX_ASSET="composer-bridge-${VERSION}-linux-amd64.AppImage"
-          WIN_ASSET="Composer-Bridge-${VERSION}-Setup.exe"
-          if [ ! -f "release/$WIN_ASSET" ]; then
-            WIN_ASSET="composer-bridge-${VERSION}-windows-amd64.zip"
-          fi
+          # Manifest URLs point at the raw binary assets, NOT the installer
+          # wrappers (DMG / AppImage / Setup.exe). The in-app updater uses
+          # selfupdate.Apply, which consumes a binary stream and cannot
+          # unpack wrappers. Fresh installs still go through the wrappers
+          # (separately published on the same Release).
+          ARM64_ASSET="composer-bridge-${VERSION}-darwin-arm64-bin"
+          UNIVERSAL_ASSET="composer-bridge-${VERSION}-darwin-universal-bin"
+          LINUX_ASSET="composer-bridge-${VERSION}-linux-amd64-bin"
+          WIN_ASSET="composer-bridge-${VERSION}-windows-amd64.exe"
 
           ARM64_SHA="$(sha256sum "release/$ARM64_ASSET" | awk '{print $1}')"
           UNIVERSAL_SHA="$(sha256sum "release/$UNIVERSAL_ASSET" | awk '{print $1}')"

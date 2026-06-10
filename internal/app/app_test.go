@@ -2,10 +2,13 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +20,7 @@ import (
 	"github.com/better-lyrics/composer-bridge/internal/bridgestate"
 	"github.com/better-lyrics/composer-bridge/internal/config"
 	"github.com/better-lyrics/composer-bridge/internal/library"
+	"github.com/better-lyrics/composer-bridge/internal/updater"
 	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
 )
 
@@ -806,5 +810,107 @@ func TestApp_CookiesState_ReflectsPreferPremium(t *testing.T) {
 	state = a.CookiesState()
 	if !state.PreferPremium {
 		t.Fatalf("CookiesState.PreferPremium should reflect persisted flag")
+	}
+}
+
+// -- Update flow --------------------------------------------------------------
+
+func TestApp_LatestUpdate_ReturnsNilByDefault(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	if got := a.LatestUpdate(); got != nil {
+		t.Errorf("LatestUpdate: got %+v, want nil before any poll has fired", got)
+	}
+}
+
+func TestApp_SetLatestUpdate_RoundTripsThroughLatestUpdate(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	info := &updater.UpdateInfo{Available: true, Current: "0.1.0", Latest: "9.9.9"}
+	a.SetLatestUpdate(info)
+	got := a.LatestUpdate()
+	if got == nil {
+		t.Fatal("LatestUpdate: got nil after SetLatestUpdate")
+	}
+	if got.Latest != "9.9.9" || !got.Available {
+		t.Errorf("LatestUpdate: got %+v, want stashed copy", got)
+	}
+}
+
+func TestApp_SetLatestUpdate_NilClearsTheStash(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	a.SetLatestUpdate(&updater.UpdateInfo{Available: true, Latest: "9.9.9"})
+	a.SetLatestUpdate(nil)
+	if got := a.LatestUpdate(); got != nil {
+		t.Errorf("LatestUpdate after nil reset: got %+v, want nil", got)
+	}
+}
+
+func TestApp_InstallUpdate_NoStashReturnsError(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	err := a.InstallUpdate()
+	if err == nil {
+		t.Fatal("InstallUpdate: got nil error when no update is stashed")
+	}
+	if !strings.Contains(err.Error(), "no update available") {
+		t.Errorf("InstallUpdate error: got %q, want phrase 'no update available'", err.Error())
+	}
+}
+
+func TestApp_InstallUpdate_StashedButUnavailableReturnsError(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	a.SetLatestUpdate(&updater.UpdateInfo{Available: false, Current: "9.9.9", Latest: "9.9.9"})
+	err := a.InstallUpdate()
+	if err == nil {
+		t.Fatal("InstallUpdate: got nil error when stashed info reports Available=false")
+	}
+	if !strings.Contains(err.Error(), "no update available") {
+		t.Errorf("InstallUpdate error: got %q, want phrase 'no update available'", err.Error())
+	}
+}
+
+// newManifestServer is a tiny test-local helper because the manifest server
+// helper in updater_test.go is private to that package.
+func newManifestServer(t *testing.T, m updater.Manifest) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(m)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestApp_CheckForUpdates_StashesAndReturnsAvailable(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	m := updater.Manifest{
+		Version:    "9.9.9",
+		ReleasedAt: time.Now(),
+		Notes:      "fixtures",
+		Assets: map[string]map[string]updater.Asset{
+			runtime.GOOS: {
+				runtime.GOARCH: {URL: "https://example.invalid/asset", SHA256: "deadbeef"},
+			},
+		},
+	}
+	srv := newManifestServer(t, m)
+
+	// Steer Check at the test server by replacing DefaultManifestURL via a
+	// pointer-to-string swap isn't possible (const); instead exercise the
+	// public CheckForUpdates path indirectly via updater.Check on the test
+	// URL, then stash and emit through the App surface. Same wiring shape as
+	// the production CheckForUpdates body.
+	info, err := updater.Check(context.Background(), srv.URL, a.version, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatalf("updater.Check: %v", err)
+	}
+	a.SetLatestUpdate(info)
+
+	stashed := a.LatestUpdate()
+	if stashed == nil {
+		t.Fatal("LatestUpdate: nil after stash")
+	}
+	if !stashed.Available {
+		t.Errorf("Available: got false, want true (current %q < latest %q)", stashed.Current, stashed.Latest)
+	}
+	if stashed.Latest != "9.9.9" {
+		t.Errorf("Latest: got %q, want 9.9.9", stashed.Latest)
 	}
 }

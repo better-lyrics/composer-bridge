@@ -34,7 +34,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-const Version = "1.3.0"
+const Version = "1.4.0"
 
 func main() {
 	dataDir := resolveDataDir()
@@ -140,6 +140,10 @@ func main() {
 	scheduleYtdlpRefresh(bgCtx, dataDir)
 	go updater.PollDaily(bgCtx, updater.DefaultManifestURL, Version, func(info updater.UpdateInfo) {
 		slog.Info("bridge update available", "version", info.Latest, "current", info.Current)
+		a.SetLatestUpdate(&info)
+		if appCtx := a.Ctx(); appCtx != nil {
+			wailsRuntime.EventsEmit(appCtx, "bridge:update-available", info)
+		}
 	})
 
 	a.SetYtdlpVersionFn(getYtdlpVersion)

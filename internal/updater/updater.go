@@ -10,6 +10,8 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"time"
@@ -194,6 +196,45 @@ func semverTag(v string) string {
 // and atomically replaces the running binary via selfupdate (rolls back on
 // failure).
 func Apply(ctx context.Context, asset Asset) error { return applyTo(ctx, asset, "") }
+
+// ApplyAndRelaunch runs Apply and then spawns a fresh child process pointing at
+// the current executable path so the OS picks up the swapped binary. The child
+// is detached (cmd.Process.Release) so it survives the caller's exit. The
+// caller is responsible for tearing down its own Wails / HTTP / DB resources
+// and calling runtime.Quit after this returns nil; the updater package stays
+// Wails-agnostic on purpose so the swap mechanics remain independently
+// testable.
+//
+// Returns the Apply error verbatim on failure. selfupdate's rollback semantics
+// mean a failed Apply leaves the on-disk binary intact, so it's safe for the
+// caller to keep running.
+func ApplyAndRelaunch(ctx context.Context, asset Asset) error {
+	return applyAndRelaunchTo(ctx, asset, "", "")
+}
+
+// applyAndRelaunchTo is ApplyAndRelaunch with overridable swap target +
+// relaunch executable so tests don't replace and spawn the test runner.
+func applyAndRelaunchTo(ctx context.Context, asset Asset, targetPath, launchPath string) error {
+	if err := applyTo(ctx, asset, targetPath); err != nil {
+		return err
+	}
+	exe := launchPath
+	if exe == "" {
+		got, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("resolve executable: %w", err)
+		}
+		exe = got
+	}
+	cmd := exec.Command(exe)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("relaunch start: %w", err)
+	}
+	if err := cmd.Process.Release(); err != nil {
+		return fmt.Errorf("relaunch release: %w", err)
+	}
+	return nil
+}
 
 // applyTo is Apply with an overridable TargetPath so tests don't replace
 // their own executable.
