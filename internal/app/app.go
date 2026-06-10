@@ -386,6 +386,17 @@ func (a *App) SetStatusEmitter(emit func(ctx context.Context, name string, data 
 	a.mu.Unlock()
 }
 
+// DownloadDir returns the absolute path of the user-configured audio download
+// root. Read by the cache-first branch of the /audio/{id} handler (via the
+// callback in main.go) to decide whether a track's library-recorded AudioPath
+// is a valid cache hit. Lock-protected because SaveConfig can mutate this at
+// runtime.
+func (a *App) DownloadDir() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.downloadDir
+}
+
 // CookiesPath returns the absolute path of the active cookies file, or ""
 // when cookies are disabled or absent. Used by the HTTP handlers (via the
 // callback in main.go).
