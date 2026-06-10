@@ -6,18 +6,12 @@ import { useUpdateInfo } from "@/hooks/use-update-info";
 
 // -- Constants ----------------------------------------------------------------
 
-// Snappy spring that settles in roughly 180ms with no overshoot. Layout
-// reflow uses the same profile as the sidebar so the banner mount and the
-// sidebar shift play in lockstep through the shared LayoutGroup.
-const LAYOUT_SPRING = { type: "spring" as const, stiffness: 500, damping: 45 };
-const BANNER_TRANSITION = {
-  layout: LAYOUT_SPRING,
-  opacity: { duration: 0.16, ease: [0.32, 0.72, 0, 1] as const },
-};
-const NOTES_TRANSITION = {
-  layout: LAYOUT_SPRING,
-  opacity: { duration: 0.14, ease: [0.32, 0.72, 0, 1] as const },
-};
+// 220ms with the iOS-native ease-out-quart curve. The height tween on the
+// banner naturally pushes the flex column below it each frame, so the sidebar
+// reflows for free without needing motion's layout system. The notes section
+// uses a slightly faster tween to feel responsive on toggle.
+const BANNER_TRANSITION = { duration: 0.22, ease: [0.32, 0.72, 0, 1] as const };
+const NOTES_TRANSITION = { duration: 0.18, ease: [0.32, 0.72, 0, 1] as const };
 
 // -- Component ----------------------------------------------------------------
 
@@ -30,7 +24,6 @@ const UpdateBanner: React.FC = () => {
       {showBanner && info && (
         <m.div
           key="update-banner"
-          layout
           role="region"
           aria-label="Update available"
           className="flex flex-col overflow-hidden border-b border-composer-border bg-composer-accent-dark/10"
@@ -98,7 +91,6 @@ const UpdateBanner: React.FC = () => {
             {showNotes && info.notes && (
               <m.div
                 key="update-notes"
-                layout
                 className="overflow-hidden border-t border-composer-border"
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: "auto", opacity: 1 }}
