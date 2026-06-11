@@ -38,7 +38,7 @@ var assets embed.FS
 // `-ldflags "-X main.Version=$VERSION"` injection actually takes effect at
 // link time. Constants are inlined by the compiler and cannot be overridden,
 // which is why this stayed in sync with tags only through manual edits.
-var Version = "1.4.5"
+var Version = "1.4.6"
 
 func main() {
 	// SingleInstanceLock handshake: when ApplyAndRelaunch spawns us with the
@@ -225,7 +225,11 @@ func main() {
 		MinWidth:         800,
 		MinHeight:        540,
 		AssetServer:      &assetserver.Options{Assets: assets},
-		BackgroundColour: &options.RGBA{R: 0x28, G: 0x29, B: 0x2c, A: 255},
+		// A: 0 (transparent window background) is required for AppKit to draw
+		// the rounded top corners on a `fullSizeContentView + titlebarAppearsTransparent`
+		// window. The webview is transparent too, so the React app's
+		// `bg-composer-bg` paints the visible interior. See wails issue #1805.
+		BackgroundColour: &options.RGBA{R: 0x28, G: 0x29, B: 0x2c, A: 0},
 		// StartHidden suppresses Wails's default makeKeyAndOrderFront so the
 		// brief ~50ms during which Wails's own AppDelegate forces the policy
 		// to Regular doesn't produce a Dock-icon flash. OnStartup then calls
