@@ -105,6 +105,9 @@ jobs:
         run: |
           set -euo pipefail
           cd build/bin
+          # The zip artifact keeps the wails outputfilename ("composer-bridge.app")
+          # because the package job extracts the inner binary from that path for
+          # the raw -bin asset. Renaming only happens for the DMG below.
           ditto -c -k --sequesterRsrc --keepParent "composer-bridge.app" \
             "${{ github.workspace }}/${{ matrix.artifact_name }}.zip"
 
@@ -113,9 +116,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Stage a renamed copy so the DMG presents the user-friendly name
+          # ("Composer Bridge.app") when dragged to /Applications, while the
+          # underlying wails outputfilename stays "composer-bridge" inside
+          # Contents/MacOS so the in-app updater's path resolution is stable.
+          rm -rf "build/bin/Composer Bridge.app"
+          cp -R "build/bin/composer-bridge.app" "build/bin/Composer Bridge.app"
           hdiutil create \
             -volname "Composer Bridge" \
-            -srcfolder build/bin/composer-bridge.app \
+            -srcfolder "build/bin/Composer Bridge.app" \
             -ov \
             -format UDZO \
             "${{ github.workspace }}/${{ matrix.artifact_name }}.dmg"
@@ -324,20 +333,35 @@ jobs:
           BASE="https://github.com/better-lyrics/composer-bridge/releases/download/${TAG}"
           RELEASED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          # Manifest URLs point at the raw binary assets, NOT the installer
-          # wrappers (DMG / AppImage / Setup.exe). The in-app updater uses
-          # selfupdate.Apply, which consumes a binary stream and cannot
-          # unpack wrappers. Fresh installs still go through the wrappers
-          # (separately published on the same Release).
+          # Each platform block carries two URL pairs:
+          #   url / sha256              - raw binary for selfupdate.Apply (in-app)
+          #   installer_url / installer_sha256 - DMG / AppImage / Setup.exe wrappers
+          #                                       for install.sh fresh installs
+          # The Go updater struct ignores the installer_* fields (unknown fields
+          # are silently dropped by encoding/json), so adding them is backwards
+          # compatible with every shipped 1.4.x bridge.
           ARM64_ASSET="composer-bridge-${VERSION}-darwin-arm64-bin"
           UNIVERSAL_ASSET="composer-bridge-${VERSION}-darwin-universal-bin"
           LINUX_ASSET="composer-bridge-${VERSION}-linux-amd64-bin"
           WIN_ASSET="composer-bridge-${VERSION}-windows-amd64.exe"
 
+          ARM64_INSTALLER="Composer-Bridge-${VERSION}-darwin-arm64.dmg"
+          UNIVERSAL_INSTALLER="Composer-Bridge-${VERSION}-darwin-universal.dmg"
+          LINUX_INSTALLER="composer-bridge-${VERSION}-linux-amd64.AppImage"
+          WIN_INSTALLER="Composer-Bridge-${VERSION}-Setup.exe"
+          if [ ! -f "release/$WIN_INSTALLER" ]; then
+            WIN_INSTALLER="composer-bridge-${VERSION}-windows-amd64.zip"
+          fi
+
           ARM64_SHA="$(sha256sum "release/$ARM64_ASSET" | awk '{print $1}')"
           UNIVERSAL_SHA="$(sha256sum "release/$UNIVERSAL_ASSET" | awk '{print $1}')"
           LINUX_SHA="$(sha256sum "release/$LINUX_ASSET" | awk '{print $1}')"
           WIN_SHA="$(sha256sum "release/$WIN_ASSET" | awk '{print $1}')"
+
+          ARM64_INSTALLER_SHA="$(sha256sum "release/$ARM64_INSTALLER" | awk '{print $1}')"
+          UNIVERSAL_INSTALLER_SHA="$(sha256sum "release/$UNIVERSAL_INSTALLER" | awk '{print $1}')"
+          LINUX_INSTALLER_SHA="$(sha256sum "release/$LINUX_INSTALLER" | awk '{print $1}')"
+          WIN_INSTALLER_SHA="$(sha256sum "release/$WIN_INSTALLER" | awk '{print $1}')"
 
           NOTES="$(cat release/CHANGELOG.md)"
 
@@ -347,27 +371,50 @@ jobs:
             --arg notes "$NOTES" \
             --arg arm64_url "$BASE/$ARM64_ASSET" \
             --arg arm64_sha "$ARM64_SHA" \
+            --arg arm64_installer_url "$BASE/$ARM64_INSTALLER" \
+            --arg arm64_installer_sha "$ARM64_INSTALLER_SHA" \
             --arg universal_url "$BASE/$UNIVERSAL_ASSET" \
             --arg universal_sha "$UNIVERSAL_SHA" \
+            --arg universal_installer_url "$BASE/$UNIVERSAL_INSTALLER" \
+            --arg universal_installer_sha "$UNIVERSAL_INSTALLER_SHA" \
             --arg linux_url "$BASE/$LINUX_ASSET" \
             --arg linux_sha "$LINUX_SHA" \
+            --arg linux_installer_url "$BASE/$LINUX_INSTALLER" \
+            --arg linux_installer_sha "$LINUX_INSTALLER_SHA" \
             --arg win_url "$BASE/$WIN_ASSET" \
             --arg win_sha "$WIN_SHA" \
+            --arg win_installer_url "$BASE/$WIN_INSTALLER" \
+            --arg win_installer_sha "$WIN_INSTALLER_SHA" \
             '{
               version: $version,
               released_at: $released_at,
               notes: $notes,
               assets: {
                 darwin: {
-                  arm64:     { url: $arm64_url,     sha256: $arm64_sha },
-                  amd64:     { url: $universal_url, sha256: $universal_sha },
-                  universal: { url: $universal_url, sha256: $universal_sha }
+                  arm64: {
+                    url: $arm64_url, sha256: $arm64_sha,
+                    installer_url: $arm64_installer_url, installer_sha256: $arm64_installer_sha
+                  },
+                  amd64: {
+                    url: $universal_url, sha256: $universal_sha,
+                    installer_url: $universal_installer_url, installer_sha256: $universal_installer_sha
+                  },
+                  universal: {
+                    url: $universal_url, sha256: $universal_sha,
+                    installer_url: $universal_installer_url, installer_sha256: $universal_installer_sha
+                  }
                 },
                 linux: {
-                  amd64: { url: $linux_url, sha256: $linux_sha }
+                  amd64: {
+                    url: $linux_url, sha256: $linux_sha,
+                    installer_url: $linux_installer_url, installer_sha256: $linux_installer_sha
+                  }
                 },
                 windows: {
-                  amd64: { url: $win_url, sha256: $win_sha }
+                  amd64: {
+                    url: $win_url, sha256: $win_sha,
+                    installer_url: $win_installer_url, installer_sha256: $win_installer_sha
+                  }
                 }
               }
             }' > release/manifest.json

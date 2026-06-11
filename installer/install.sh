@@ -158,21 +158,48 @@ extract_asset_field() {
 }
 
 RESOLVED_VERSION=$(extract_version)
-ASSET_URL=$(extract_asset_field url)
-ASSET_SHA=$(extract_asset_field sha256)
+ASSET_URL=$(extract_asset_field installer_url)
+ASSET_SHA=$(extract_asset_field installer_sha256)
 
 if [ -z "$RESOLVED_VERSION" ]; then
     err "could not read version from manifest"
     exit 2
 fi
-if [ -z "$ASSET_URL" ] || [ -z "$ASSET_SHA" ]; then
-    err "no asset published for $OS/$ARCH in manifest"
+
+# Backwards-compat: manifests from v1.4.3 and earlier only carry the raw-binary
+# `url` field (used by the in-app updater). For those releases construct the
+# installer URL by convention so the user can still grab the DMG / AppImage /
+# Setup.exe from the same release. Checksum is unavailable in that fallback
+# path so we trust the HTTPS download.
+SHA_AVAILABLE="yes"
+if [ -z "$ASSET_URL" ]; then
+    case "$OS" in
+        darwin)
+            case "$ARCH" in
+                arm64) ASSET_URL="$BASE_URL/Composer-Bridge-${RESOLVED_VERSION}-darwin-arm64.dmg" ;;
+                amd64) ASSET_URL="$BASE_URL/Composer-Bridge-${RESOLVED_VERSION}-darwin-universal.dmg" ;;
+            esac
+            ;;
+        linux)
+            ASSET_URL="$BASE_URL/composer-bridge-${RESOLVED_VERSION}-linux-amd64.AppImage"
+            ;;
+    esac
+    SHA_AVAILABLE="no"
+    if [ -n "$ASSET_URL" ]; then
+        log "manifest has no installer_url for $OS/$ARCH; using release-asset convention"
+    fi
+fi
+
+if [ -z "$ASSET_URL" ]; then
+    err "no installer published for $OS/$ARCH"
     exit 1
 fi
 
 log "manifest version: $RESOLVED_VERSION"
-log "asset url:        $ASSET_URL"
-log "expected sha256:  $ASSET_SHA"
+log "installer url:    $ASSET_URL"
+if [ "$SHA_AVAILABLE" = "yes" ]; then
+    log "expected sha256:  $ASSET_SHA"
+fi
 
 ASSET_BASENAME=$(basename "$ASSET_URL")
 ASSET_PATH="$TMPDIR_ROOT/$ASSET_BASENAME"
@@ -183,25 +210,28 @@ if ! curl -fsSL "$ASSET_URL" -o "$ASSET_PATH"; then
     exit 2
 fi
 
-log "verifying checksum"
-ACTUAL_SHA=$(shasum -a 256 "$ASSET_PATH" | awk '{print $1}')
-if [ -z "$ACTUAL_SHA" ]; then
-    err "could not compute sha256 of downloaded asset"
-    exit 3
+if [ "$SHA_AVAILABLE" = "yes" ]; then
+    log "verifying checksum"
+    ACTUAL_SHA=$(shasum -a 256 "$ASSET_PATH" | awk '{print $1}')
+    if [ -z "$ACTUAL_SHA" ]; then
+        err "could not compute sha256 of downloaded asset"
+        exit 3
+    fi
+    if [ "$ACTUAL_SHA" != "$ASSET_SHA" ]; then
+        err "checksum mismatch"
+        err "  expected: $ASSET_SHA"
+        err "  actual:   $ACTUAL_SHA"
+        exit 3
+    fi
+    log "checksum ok"
+else
+    log "skipping checksum verification (manifest predates installer_sha256)"
 fi
-if [ "$ACTUAL_SHA" != "$ASSET_SHA" ]; then
-    err "checksum mismatch"
-    err "  expected: $ASSET_SHA"
-    err "  actual:   $ACTUAL_SHA"
-    exit 3
-fi
-log "checksum ok"
 
 install_macos() {
     require_cmd hdiutil
     require_cmd xattr
 
-    SRC_APP_NAME="composer-bridge.app"
     DEST_APP_NAME="Composer Bridge.app"
     MOUNT_POINT="$TMPDIR_ROOT/mnt"
     mkdir -p "$MOUNT_POINT"
@@ -212,8 +242,15 @@ install_macos() {
         exit 4
     fi
 
-    if [ ! -d "$MOUNT_POINT/$SRC_APP_NAME" ]; then
-        err "$SRC_APP_NAME not found inside dmg"
+    # v1.4.4+ DMGs contain "Composer Bridge.app". v1.4.3 and earlier ship
+    # "composer-bridge.app" (wails outputfilename). Accept either so this
+    # script remains usable for re-installing older releases.
+    if [ -d "$MOUNT_POINT/Composer Bridge.app" ]; then
+        SRC_APP_NAME="Composer Bridge.app"
+    elif [ -d "$MOUNT_POINT/composer-bridge.app" ]; then
+        SRC_APP_NAME="composer-bridge.app"
+    else
+        err "no .app bundle found inside dmg"
         hdiutil detach "$MOUNT_POINT" -quiet || true
         exit 4
     fi
@@ -222,8 +259,8 @@ install_macos() {
     if [ -d "/Applications/$DEST_APP_NAME" ]; then
         rm -rf "/Applications/$DEST_APP_NAME"
     fi
-    if [ -d "/Applications/$SRC_APP_NAME" ]; then
-        rm -rf "/Applications/$SRC_APP_NAME"
+    if [ -d "/Applications/composer-bridge.app" ]; then
+        rm -rf "/Applications/composer-bridge.app"
     fi
     if ! cp -R "$MOUNT_POINT/$SRC_APP_NAME" "/Applications/$DEST_APP_NAME"; then
         err "copy to /Applications failed (try with sudo if you hit permissions)"
