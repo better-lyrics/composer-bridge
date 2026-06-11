@@ -17,11 +17,11 @@ jobs:
       matrix:
         include:
           - label: darwin-arm64
-            runner: macos-15
+            runner: macos-26
             wails_platform: darwin/arm64
             artifact_name: bridge-darwin-arm64
           - label: darwin-universal
-            runner: macos-15
+            runner: macos-26
             wails_platform: darwin/universal
             artifact_name: bridge-darwin-universal
           - label: windows-amd64
