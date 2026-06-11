@@ -93,6 +93,14 @@ select,
   cursor: text;
 }
 
+/* Anchors inside select-text regions get the default arrow cursor instead
+   of the I-beam they would inherit from .select-text *. Desktop apps don't
+   use the browser's pointer-hand cursor on links; hover state, color, and
+   underline already signal interactivity. */
+.select-text a {
+  cursor: default;
+}
+
 button,
 [role="button"],
 [role="switch"],
