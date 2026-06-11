@@ -117,6 +117,24 @@ button:disabled,
   cursor: not-allowed;
 }
 
+/* Interactive elements always opt out of Wails window drag so a button or
+   text input inside a banner / header / drag handle still receives clicks
+   instead of moving the window. The custom property cascades; widgets only
+   need to set `--wails-draggable: drag` on the chrome container and every
+   <button>, <a>, <input> etc. inside automatically becomes no-drag. */
+button,
+[role="button"],
+[role="switch"],
+[role="tab"],
+[role="menuitem"],
+a,
+input,
+select,
+textarea,
+summary {
+  --wails-draggable: no-drag;
+}
+
 ::selection {
   background-color: rgba(129, 140, 248, 0.4);
   color: #fff;

@@ -56,49 +56,82 @@ function renderInline(text: string): React.ReactNode[] {
   });
 }
 
+// renderBullet shapes a single `- foo` line into a dot-prefixed row. Kept
+// separate from the grouping logic so renderNotes can either render a bullet
+// inline or batch consecutive bullets into one tighter run.
+function renderBullet(line: string, key: number | string): React.ReactNode {
+  return (
+    <div key={key} className="flex gap-2 pl-1">
+      <span className="text-composer-text-faint" aria-hidden>
+        •
+      </span>
+      <span className="flex-1">{renderInline(line.slice(2))}</span>
+    </div>
+  );
+}
+
 // renderNotes does the line-level layout: headings get color + weight (no
-// size change, per the user spec), bullets get a dot prefix, blank source
-// lines are dropped. Vertical rhythm is driven by the parent's `gap-2` (8px
-// between every block) plus an extra `mt-2` above headings so they read as
-// section starts rather than another bullet.
+// size change, per the user spec), consecutive bullets group into a single
+// container with a tighter `gap-1` (4px) so a multi-line list reads as one
+// block, blank source lines are dropped, and the outer parent's `gap-2` (8px)
+// keeps headings and paragraphs apart. Anything we don't recognise renders
+// as a paragraph so future manifest formats still display.
 function renderNotes(notes: string): React.ReactNode[] {
   const lines = notes.split("\n");
-  return lines.map((rawLine, i) => {
+  const result: React.ReactNode[] = [];
+  let bulletRun: { line: string; idx: number }[] = [];
+
+  const flushBullets = () => {
+    if (bulletRun.length === 0) return;
+    const run = bulletRun;
+    bulletRun = [];
+    result.push(
+      <div key={`bullets-${run[0].idx}`} className="flex flex-col gap-1">
+        {run.map(({ line, idx }) => renderBullet(line, idx))}
+      </div>,
+    );
+  };
+
+  lines.forEach((rawLine, i) => {
     const line = rawLine.trimEnd();
-    if (line === "") return null;
-    if (line.startsWith("### ")) {
-      return (
-        <div key={i} className="mt-2 font-semibold text-composer-text-secondary first:mt-0">
-          {renderInline(line.slice(4))}
-        </div>
-      );
-    }
-    if (line.startsWith("## ")) {
-      return (
-        <div key={i} className="mt-2 font-semibold text-composer-text first:mt-0">
-          {renderInline(line.slice(3))}
-        </div>
-      );
-    }
-    if (line.startsWith("# ")) {
-      return (
-        <div key={i} className="mt-2 font-semibold text-composer-text first:mt-0">
-          {renderInline(line.slice(2))}
-        </div>
-      );
+    if (line === "") {
+      flushBullets();
+      return;
     }
     if (line.startsWith("- ") || line.startsWith("* ")) {
-      return (
-        <div key={i} className="flex gap-2 pl-1">
-          <span className="text-composer-text-faint" aria-hidden>
-            •
-          </span>
-          <span className="flex-1">{renderInline(line.slice(2))}</span>
-        </div>
-      );
+      bulletRun.push({ line, idx: i });
+      return;
     }
-    return <div key={i}>{renderInline(line)}</div>;
+    flushBullets();
+    if (line.startsWith("### ")) {
+      result.push(
+        <div key={i} className="font-semibold text-composer-text-secondary">
+          {renderInline(line.slice(4))}
+        </div>,
+      );
+      return;
+    }
+    if (line.startsWith("## ")) {
+      result.push(
+        <div key={i} className="font-semibold text-composer-text">
+          {renderInline(line.slice(3))}
+        </div>,
+      );
+      return;
+    }
+    if (line.startsWith("# ")) {
+      result.push(
+        <div key={i} className="font-semibold text-composer-text">
+          {renderInline(line.slice(2))}
+        </div>,
+      );
+      return;
+    }
+    result.push(<div key={i}>{renderInline(line)}</div>);
   });
+  flushBullets();
+
+  return result;
 }
 
 // -- Component ----------------------------------------------------------------
@@ -114,17 +147,14 @@ const UpdateBanner: React.FC = () => {
           key="update-banner"
           role="region"
           aria-label="Update available"
-          className="flex flex-col overflow-hidden border-b border-composer-border bg-composer-accent-dark/10 will-change-[height,opacity]"
+          className="flex flex-col overflow-hidden rounded-t-[10px] border-b border-composer-border bg-composer-accent-dark/10 will-change-[height,opacity]"
           style={{ "--wails-draggable": "drag" } as React.CSSProperties}
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: "auto", opacity: 1 }}
           exit={{ height: 0, opacity: 0 }}
           transition={BANNER_TRANSITION}
         >
-          <div
-            className="flex h-13 items-center gap-3 pr-4 pl-24"
-            style={{ "--wails-draggable": "no-drag" } as React.CSSProperties}
-          >
+          <div className="flex h-13 items-center gap-3 pr-4 pl-24">
             <div className="flex flex-1 items-center gap-2 select-none">
               <IconSquareRoundedArrowUp size={16} className="text-composer-accent" />
               <span className="text-xs font-medium text-composer-text">Update available</span>
