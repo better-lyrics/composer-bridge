@@ -1,6 +1,7 @@
 import { IconDownload, IconSquareRoundedArrowUp, IconX } from "@tabler/icons-react";
 import { AnimatePresence, m } from "motion/react";
 import { useState } from "react";
+import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import { Button } from "@/components/button";
 import { useUpdateInfo } from "@/hooks/use-update-info";
 
@@ -12,6 +13,93 @@ import { useUpdateInfo } from "@/hooks/use-update-info";
 // uses a slightly faster tween to feel responsive on toggle.
 const BANNER_TRANSITION = { duration: 0.22, ease: [0.32, 0.72, 0, 1] as const };
 const NOTES_TRANSITION = { duration: 0.18, ease: [0.32, 0.72, 0, 1] as const };
+
+// INLINE_TOKEN_RE splits a line into runs of plain text, **bold** spans, and
+// http(s) URLs while keeping the matched delimiters. The capturing group
+// inside String.prototype.split is what lets us reconstruct the line with
+// tokens still in place. Bold is greedy across `*` to handle the common
+// "**Full diff:** ..." shape without false-matching `*` in prose.
+const INLINE_TOKEN_RE = /(\*\*[^*]+\*\*|https?:\/\/\S+)/g;
+
+// -- Notes rendering ----------------------------------------------------------
+
+// renderInline parses a single line's inline tokens: **bold** turns into a
+// brighter span, http(s) URLs into clickable anchors that route through
+// Wails' BrowserOpenURL (the default browser, not the embedded WebView).
+function renderInline(text: string): React.ReactNode[] {
+  const tokens = text.split(INLINE_TOKEN_RE);
+  return tokens.map((tok, i) => {
+    if (!tok) return null;
+    if (tok.startsWith("**") && tok.endsWith("**")) {
+      return (
+        <strong key={i} className="font-semibold">
+          {tok.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (tok.startsWith("http://") || tok.startsWith("https://")) {
+      return (
+        <a
+          key={i}
+          href={tok}
+          onClick={(e) => {
+            e.preventDefault();
+            BrowserOpenURL(tok);
+          }}
+          className="text-composer-accent-text hover:underline"
+        >
+          {tok}
+        </a>
+      );
+    }
+    return <span key={i}>{tok}</span>;
+  });
+}
+
+// renderNotes does the line-level layout: headings get color + weight (no
+// size change, per the user spec), bullets get a dot prefix, blank source
+// lines are dropped. Vertical rhythm is driven by the parent's `gap-2` (8px
+// between every block) plus an extra `mt-2` above headings so they read as
+// section starts rather than another bullet.
+function renderNotes(notes: string): React.ReactNode[] {
+  const lines = notes.split("\n");
+  return lines.map((rawLine, i) => {
+    const line = rawLine.trimEnd();
+    if (line === "") return null;
+    if (line.startsWith("### ")) {
+      return (
+        <div key={i} className="mt-2 font-semibold text-composer-text-secondary first:mt-0">
+          {renderInline(line.slice(4))}
+        </div>
+      );
+    }
+    if (line.startsWith("## ")) {
+      return (
+        <div key={i} className="mt-2 font-semibold text-composer-text first:mt-0">
+          {renderInline(line.slice(3))}
+        </div>
+      );
+    }
+    if (line.startsWith("# ")) {
+      return (
+        <div key={i} className="mt-2 font-semibold text-composer-text first:mt-0">
+          {renderInline(line.slice(2))}
+        </div>
+      );
+    }
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      return (
+        <div key={i} className="flex gap-2 pl-1">
+          <span className="text-composer-text-faint" aria-hidden>
+            •
+          </span>
+          <span className="flex-1">{renderInline(line.slice(2))}</span>
+        </div>
+      );
+    }
+    return <div key={i}>{renderInline(line)}</div>;
+  });
+}
 
 // -- Component ----------------------------------------------------------------
 
@@ -92,14 +180,15 @@ const UpdateBanner: React.FC = () => {
               <m.div
                 key="update-notes"
                 className="overflow-hidden border-t border-composer-border will-change-[height,opacity]"
+                style={{ "--wails-draggable": "no-drag" } as React.CSSProperties}
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: "auto", opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 transition={NOTES_TRANSITION}
               >
-                <pre className="px-4 py-3 font-mono text-[11px] whitespace-pre-wrap text-composer-text-muted select-text">
-                  {info.notes}
-                </pre>
+                <div className="flex cursor-text flex-col gap-2 px-4 py-3 text-[11px] leading-relaxed text-composer-text-muted select-text">
+                  {renderNotes(info.notes)}
+                </div>
               </m.div>
             )}
           </AnimatePresence>
