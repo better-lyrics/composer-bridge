@@ -224,7 +224,10 @@ func main() {
 		Height:           700,
 		MinWidth:         800,
 		MinHeight:        540,
-		AssetServer:      &assetserver.Options{Assets: assets},
+		AssetServer: &assetserver.Options{
+			Assets:     assets,
+			Middleware: assetserver.ChainMiddleware(platformInjectMiddleware),
+		},
 		// A: 0 (transparent window background) is required for AppKit to draw
 		// the rounded top corners on a `fullSizeContentView + titlebarAppearsTransparent`
 		// window. The webview is transparent too, so the React app's
