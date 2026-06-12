@@ -1,11 +1,17 @@
-// Wails uses a platform-native webview on every host (WKWebView on macOS,
-// WebView2 on Windows, WebKitGTK on Linux), so navigator.userAgent always
-// reflects the host OS. We evaluate this at module load: zero IPC, zero
-// layout flash on first paint, and tree-shakeable when bundled.
+// platformInjectMiddleware on the Go side stamps the served index.html with
+// `<script>window.__platform="darwin|windows|linux";</script>` before any
+// other JS runs. The value is Go's runtime.GOOS, baked into the binary at
+// `wails build` time, so it is the ground truth for the host OS.
 //
-// Why not Wails' Environment() runtime call? It returns a Promise, which
-// forces an async effect and a render with the wrong inset on the first
-// frame. The host detection is fundamental enough that we want it sync.
+// In tests / browser previews where the script is absent, window.__platform
+// is undefined and isMacOS resolves to false. No test asserts the macOS
+// branch, so this is a safe default.
+
+declare global {
+  interface Window {
+    __platform?: "darwin" | "windows" | "linux";
+  }
+}
 
 export const isMacOS: boolean =
-  typeof navigator !== "undefined" && /Macintosh|Mac OS X/.test(navigator.userAgent);
+  typeof window !== "undefined" && window.__platform === "darwin";
