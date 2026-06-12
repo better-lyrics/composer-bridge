@@ -4,6 +4,7 @@ import { useState } from "react";
 import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
 import { Button } from "@/components/button";
 import { useUpdateInfo } from "@/hooks/use-update-info";
+import { isMacOS } from "@/utils/is-mac";
 
 // -- Constants ----------------------------------------------------------------
 
@@ -154,7 +155,7 @@ const UpdateBanner: React.FC = () => {
           exit={{ height: 0, opacity: 0 }}
           transition={BANNER_TRANSITION}
         >
-          <div className="flex h-13 items-center gap-3 pr-4 pl-24">
+          <div className={`flex h-13 items-center gap-3 pr-4 ${isMacOS ? "pl-24" : "pl-4"}`}>
             <div className="flex flex-1 items-center gap-2 select-none">
               <IconSquareRoundedArrowUp size={16} className="text-composer-accent" />
               <span className="text-xs font-medium text-composer-text">Update available</span>

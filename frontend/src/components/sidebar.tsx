@@ -3,6 +3,7 @@ import { BetterLyricsLogo } from "@/components/better-lyrics-logo";
 import { SidebarStatus } from "@/components/sidebar-status";
 import { useUIStore, type View } from "@/stores/ui-store";
 import { cn } from "@/utils/cn";
+import { isMacOS } from "@/utils/is-mac";
 
 // -- Constants ----------------------------------------------------------------
 
@@ -19,11 +20,11 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 interface SidebarProps {
-  // bannerVisible signals that the update banner is mounted above the app
-  // shell. When true the sidebar's title-bar inset shrinks so the logo doesn't
-  // sit far below the banner's bottom edge with awkward dead space between
-  // them. The shrink runs on a CSS transition matched to the banner's enter
-  // tween so the two animate in lockstep.
+  // bannerVisible only matters on macOS: the sidebar's title-bar inset shrinks
+  // while the update banner is mounted so the logo doesn't sit in dead space
+  // below the banner. On Windows and Linux the native title bar already insets
+  // the webview, so the sidebar uses a single small top padding and the prop
+  // is ignored.
   bannerVisible?: boolean;
 }
 
@@ -33,14 +34,18 @@ const Sidebar: React.FC<SidebarProps> = ({ bannerVisible = false }) => {
   const view = useUIStore((s) => s.view);
   const setView = useUIStore((s) => s.setView);
 
+  const headerSpacingClass = isMacOS
+    ? cn(
+        "will-change-[padding-top]",
+        "transition-[padding-top] duration-[220ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
+        bannerVisible ? "pt-4" : "pt-14",
+      )
+    : "pt-4";
+
   return (
     <aside className="flex h-full w-52 shrink-0 flex-col border-r border-composer-border bg-composer-bg select-none">
       <div
-        className={cn(
-          "flex items-center gap-2 px-4 pb-4 will-change-[padding-top]",
-          "transition-[padding-top] duration-[220ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
-          bannerVisible ? "pt-4" : "pt-14",
-        )}
+        className={cn("flex items-center gap-2 px-4 pb-4", headerSpacingClass)}
         style={{ "--wails-draggable": "drag" } as React.CSSProperties}
       >
         <BetterLyricsLogo size={20} />
