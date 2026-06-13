@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -23,6 +24,15 @@ func shortenRetryBackoff(t *testing.T) {
 	prev := retryBackoffBase
 	retryBackoffBase = time.Millisecond
 	t.Cleanup(func() { retryBackoffBase = prev })
+}
+
+// shortenGithubAPITimeout swaps githubAPITimeout down to 50ms for the duration
+// of the test so per-request timeout paths fire quickly. Restored via t.Cleanup.
+func shortenGithubAPITimeout(t *testing.T) {
+	t.Helper()
+	prev := githubAPITimeout
+	githubAPITimeout = 50 * time.Millisecond
+	t.Cleanup(func() { githubAPITimeout = prev })
 }
 
 // redirectLatestAPI points both ytdlpStableAPI and ytdlpNightlyAPI at url for
@@ -212,6 +222,66 @@ func TestFetchLatestRelease_DoesNotRetryOn404(t *testing.T) {
 	}
 	if got := calls.Load(); got != 1 {
 		t.Errorf("request count: got %d, want 1 (no retry on 4xx)", got)
+	}
+}
+
+// TestIsRetryable_URLErrorTimeoutRetries pins the contract that a
+// *url.Error wrapping context.DeadlineExceeded (the typical shape Go's http
+// client returns when a per-request timeout fires) is retryable. Without
+// this, a single slow GitHub response hard-fails the install.
+func TestIsRetryable_URLErrorTimeoutRetries(t *testing.T) {
+	err := &url.Error{Op: "Get", URL: "https://example.invalid", Err: context.DeadlineExceeded}
+	if !isRetryable(err) {
+		t.Fatal("url.Error wrapping context.DeadlineExceeded should be retryable (per-request timeout)")
+	}
+}
+
+// TestIsRetryable_CallerCancelDoesNotRetry guards that caller-side
+// cancellation (context.Canceled wrapped in *url.Error) is never retried, so
+// shutdown propagates immediately instead of looping through backoffs.
+func TestIsRetryable_CallerCancelDoesNotRetry(t *testing.T) {
+	err := &url.Error{Op: "Get", URL: "https://example.invalid", Err: context.Canceled}
+	if isRetryable(err) {
+		t.Fatal("url.Error wrapping context.Canceled must NOT be retryable (caller cancelled)")
+	}
+}
+
+// TestFetchLatestRelease_RetriesOnPerRequestTimeout exercises the integration
+// path: the first two requests block past githubAPITimeout so the per-attempt
+// ctx fires (surfacing as *url.Error wrapping context.DeadlineExceeded), then
+// the third returns a valid release payload. With the old isRetryable that
+// only matched *net.OpError, the first timeout error would have been terminal.
+func TestFetchLatestRelease_RetriesOnPerRequestTimeout(t *testing.T) {
+	shortenRetryBackoff(t)
+	shortenGithubAPITimeout(t)
+
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := calls.Add(1)
+		if n < 3 {
+			// Block until the request's per-attempt ctx fires so the client
+			// surfaces a deadline-exceeded url.Error. Cap with a safety
+			// timeout in case ctx wiring ever regresses.
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(2 * time.Second):
+				return
+			}
+		}
+		_ = json.NewEncoder(w).Encode(ghRelease{TagName: "ok"})
+	}))
+	t.Cleanup(srv.Close)
+
+	rel, err := fetchLatestRelease(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("expected success after timeout retries: %v", err)
+	}
+	if rel.TagName != "ok" {
+		t.Errorf("TagName: got %q, want ok", rel.TagName)
+	}
+	if got := calls.Load(); got != 3 {
+		t.Errorf("request count: got %d, want 3", got)
 	}
 }
 

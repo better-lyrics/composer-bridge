@@ -26,9 +26,13 @@ const BridgeVersion = "0.1.0"
 const (
 	ytdlpFetchTimeout   = 2 * time.Minute
 	ytdlpVersionTimeout = 5 * time.Second
-	githubAPITimeout    = 15 * time.Second
 	retryMaxAttempts    = 3
 )
+
+// githubAPITimeout caps each individual GitHub Releases request. Declared as
+// var so tests can shrink it to exercise the per-request-timeout retry path
+// without waiting the full production duration.
+var githubAPITimeout = 15 * time.Second
 
 // ytdlpRefreshEvery is the RefreshDaily tick interval. Declared as var so
 // tests can shorten it without waiting 24h between ticks.
@@ -136,12 +140,23 @@ type retryableHTTPError struct{ status int }
 
 func (e *retryableHTTPError) Error() string { return fmt.Sprintf("http %d", e.status) }
 
-// isRetryable decides whether an error from doHTTPGet warrants another attempt.
-// 5xx responses and network-layer failures (net.OpError, context deadline) are
-// retryable; 4xx responses are not.
+// isRetryable decides whether an error from an HTTP attempt warrants another
+// try. Caller-side cancellation (context.Canceled, e.g. app shutdown) is never
+// retryable so it propagates immediately. Per-request timeouts
+// (context.DeadlineExceeded, typically wrapped in a *url.Error when the
+// per-attempt ctx fires inside http.Client.Do) ARE retryable: a single slow
+// GitHub response should not hard-fail the install. 5xx responses and
+// lower-level network failures (*net.OpError) are retryable; 4xx responses
+// are not.
 func isRetryable(err error) bool {
 	if err == nil {
 		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
 	}
 	var httpErr *retryableHTTPError
 	if errors.As(err, &httpErr) {
