@@ -295,7 +295,7 @@ func TestAudio_ArgvRegressionFlags(t *testing.T) {
 
 	entry := env.lastActivity()
 	wantSubstrs := []string{
-		"-f", "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best",
+		"-f", "bestaudio[acodec=opus][ext=webm]/bestaudio[ext=webm]/bestaudio[protocol!*=m3u8]/best[protocol!*=m3u8]/bestaudio/best",
 		"-o", "--quiet", "--no-warnings", "--no-playlist",
 		"--extractor-args", "youtube:player_client=android_vr,web_safari;player_skip=configs,initial_data",
 		"https://www.youtube.com/watch?v=RgKAFK5djSk",
@@ -799,6 +799,52 @@ func TestAudio_FallsThroughToStreamWhenFileMissing(t *testing.T) {
 	entry := env.lastActivity()
 	if entry.Status != activity.StatusOK || entry.Kind != activity.KindAudioDownload {
 		t.Errorf("activity: got %+v, want kind=audio_download status=ok (streaming path must log)", entry)
+	}
+}
+
+// Regression: yt-dlp's old opus selector matched YouTube's HLS-Opus stream and
+// saved MPEG-TS bytes into a .opus file. The browser can't play that, so cached
+// rows in long-running installs end up broken. The cache-hit path must detect
+// the MPEG-TS magic and fall through to streaming so the user gets working
+// audio on the same play. The file itself is intentionally left in place: the
+// background repair on startup is what overwrites it with valid bytes; the
+// serve path must not delete user library files behind their back.
+func TestAudio_BypassesMpegTSCacheAndStreamsLeavingFileIntact(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'fresh stream'`))
+	// Synthesise a minimal MPEG-TS file: two sync packets (188 bytes each) so
+	// the detector's "0x47 at 0 and 188" check fires positive.
+	bad := make([]byte, 376)
+	bad[0] = 0x47
+	bad[188] = 0x47
+	dest := seedDownloadedTrack(t, env, "RgKAFK5djSk", "opus", bad)
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get /audio: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status: got %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "fresh stream" {
+		t.Errorf("body: got %q, want fresh stream (must serve via yt-dlp when cache is unplayable)", body)
+	}
+
+	info, err := os.Stat(dest)
+	if err != nil {
+		t.Fatalf("bad cache file unexpectedly missing after bypass: %v", err)
+	}
+	if info.Size() != int64(len(bad)) {
+		t.Errorf("bad file size changed: got %d, want %d (handler must not rewrite the file)", info.Size(), len(bad))
+	}
+	got, err := env.lib.GetTrack("RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("GetTrack: %v", err)
+	}
+	if got.AudioPath != dest {
+		t.Errorf("AudioPath: got %q, want %q (library row must not be mutated by the serve path)", got.AudioPath, dest)
 	}
 }
 

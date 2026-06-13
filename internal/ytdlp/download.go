@@ -13,6 +13,25 @@ import (
 // `bestaudio/best` so a video with no preferred codec still falls back to
 // whatever audio (or audio+video) yt-dlp can produce. Unknown keys behave like
 // opus.
+//
+// The opus chain is the wide one because the bridge's player_client config
+// (web_music, android_vr, web_safari) frequently does not expose itag 251
+// (WebM-Opus); the only audio-bearing formats those clients return are HLS
+// m3u8 (MPEG-TS) plus a single non-HLS mp4 with bundled AAC. So:
+//
+//   1. itag 251 if available (WebM-Opus, smallest playable)
+//   2. any audio-only WebM (covers itag 249/250 / opus-low)
+//   3. any audio-only non-HLS format (avoids the MPEG-TS trap)
+//   4. any non-HLS format at all (catches videos where only a combined
+//      mp4 is exposed; the browser ignores the video track and plays the
+//      bundled AAC just fine in an <audio> element)
+//   5. bestaudio (last resort: even HLS audio is better than nothing)
+//   6. best (would be a combined HLS format; effectively a no-go but
+//      keeps the selector total)
+//
+// MPEG-TS-over-HLS is intentionally pushed to the last two rungs because no
+// browser <audio> element can decode video/mp2t natively, so saving it to
+// disk would just reproduce the v1.4.x cache-broken state.
 func FormatSelector(format string) string {
 	switch format {
 	case "m4a":
@@ -22,9 +41,9 @@ func FormatSelector(format string) string {
 	case "mp3":
 		return "bestaudio/best"
 	case "opus", "":
-		return "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best"
+		return "bestaudio[acodec=opus][ext=webm]/bestaudio[ext=webm]/bestaudio[protocol!*=m3u8]/best[protocol!*=m3u8]/bestaudio/best"
 	default:
-		return "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best"
+		return "bestaudio[acodec=opus][ext=webm]/bestaudio[ext=webm]/bestaudio[protocol!*=m3u8]/best[protocol!*=m3u8]/bestaudio/best"
 	}
 }
 

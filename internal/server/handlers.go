@@ -257,6 +257,17 @@ func (h *Handlers) serveCachedAudio(w http.ResponseWriter, r *http.Request, trac
 		return false
 	}
 	slog.Debug("serveCached: stat ok", "videoID", track.VideoID)
+	if ytdlp.IsMpegTSFile(track.AudioPath) {
+		// Pre-1.4.11 yt-dlp selector saved Opus-over-HLS into .opus-named
+		// files; the bytes are an MPEG-TS container that no browser can play.
+		// Bypass the cache so the user gets working audio via the streaming
+		// path while a background repair on bridge boot rewrites the file in
+		// place. The file is intentionally left alone here: the user pointed
+		// out that silently deleting a song from their library is the wrong
+		// failure mode.
+		slog.Info("serveCached: cached file is unplayable MPEG-TS, streaming instead", "videoID", track.VideoID, "path", track.AudioPath)
+		return false
+	}
 	ext := strings.TrimPrefix(filepath.Ext(track.AudioPath), ".")
 	h.writeAudioHeaders(w, audioContentType(ext), track)
 	slog.Debug("serveCached: ServeFile begin", "videoID", track.VideoID)

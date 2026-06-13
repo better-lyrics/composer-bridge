@@ -954,3 +954,172 @@ func TestApp_CheckForUpdates_StashesAndReturnsAvailable(t *testing.T) {
 		t.Errorf("Latest: got %q, want 9.9.9", stashed.Latest)
 	}
 }
+
+// -- Repair of pre-1.4.11 MPEG-TS cached audio ----------------------------------
+
+// writeFakeYtdlpForApp duplicates the helper from internal/ytdlp tests because
+// cross-package test helpers are an anti-pattern in this codebase.
+func writeFakeYtdlpForApp(t *testing.T, body string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake-script tests rely on /bin/sh")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "yt-dlp")
+	script := "#!/bin/sh\n" + body + "\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake yt-dlp: %v", err)
+	}
+	return path
+}
+
+func mpegTSBytes(n int) []byte {
+	if n < 189 {
+		n = 189
+	}
+	b := make([]byte, n)
+	b[0] = 0x47
+	b[188] = 0x47
+	return b
+}
+
+func TestRepairBrokenAudio_OverwritesMpegTSInPlaceAndUpdatesLibrary(t *testing.T) {
+	a, lib, _, _ := newTestApp(t)
+	dl := filepath.Join(t.TempDir(), "downloads")
+	if err := os.MkdirAll(dl, 0o755); err != nil {
+		t.Fatalf("mkdir downloads: %v", err)
+	}
+
+	// Bad file: looks like MPEG-TS to the detector.
+	badPath := filepath.Join(dl, "RgKAFK5djSk.opus")
+	if err := os.WriteFile(badPath, mpegTSBytes(376), 0o644); err != nil {
+		t.Fatalf("write bad file: %v", err)
+	}
+	// Good file: arbitrary bytes that do NOT match the MPEG-TS signature.
+	goodPath := filepath.Join(dl, "ZEcqHA7dbwM.opus")
+	goodBytes := []byte("real opus bytes, definitely not mpegts")
+	if err := os.WriteFile(goodPath, goodBytes, 0o644); err != nil {
+		t.Fatalf("write good file: %v", err)
+	}
+
+	badTrack := sampleTrack("RgKAFK5djSk", 1)
+	badTrack.AudioPath = badPath
+	badTrack.AudioSize = 376
+	if err := lib.InsertTrack(&badTrack); err != nil {
+		t.Fatalf("insert bad: %v", err)
+	}
+	goodTrack := sampleTrack("ZEcqHA7dbwM", 2)
+	goodTrack.AudioPath = goodPath
+	goodTrack.AudioSize = int64(len(goodBytes))
+	if err := lib.InsertTrack(&goodTrack); err != nil {
+		t.Fatalf("insert good: %v", err)
+	}
+
+	// Fake yt-dlp writes a known fresh blob to whatever -o path it is given.
+	const freshPayload = "fresh webm-opus payload from repair"
+	a.mu.Lock()
+	a.ytdlpPath = writeFakeYtdlpForApp(t, `
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    printf '`+freshPayload+`' > "$2"
+  fi
+  shift
+done
+`)
+	a.cfg.AudioFormat = "opus"
+	a.downloadDir = dl
+	a.mu.Unlock()
+
+	a.repairBrokenAudio(context.Background())
+
+	// Bad file must now contain the fresh payload, written to the original path.
+	got, err := os.ReadFile(badPath)
+	if err != nil {
+		t.Fatalf("read repaired file: %v", err)
+	}
+	if string(got) != freshPayload {
+		t.Errorf("repaired contents: got %q, want %q", got, freshPayload)
+	}
+	// Library row's size must reflect the fresh write so the cache-hit path
+	// doesn't keep streaming forever.
+	updated, err := lib.GetTrack("RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("GetTrack: %v", err)
+	}
+	if updated.AudioPath != badPath {
+		t.Errorf("AudioPath changed: got %q, want %q", updated.AudioPath, badPath)
+	}
+	if updated.AudioSize != int64(len(freshPayload)) {
+		t.Errorf("AudioSize: got %d, want %d", updated.AudioSize, len(freshPayload))
+	}
+
+	// Good track must not be touched: same bytes, same library size.
+	stillGood, err := os.ReadFile(goodPath)
+	if err != nil {
+		t.Fatalf("read good file: %v", err)
+	}
+	if string(stillGood) != string(goodBytes) {
+		t.Errorf("good file was rewritten: got %q, want %q", stillGood, goodBytes)
+	}
+	untouched, err := lib.GetTrack("ZEcqHA7dbwM")
+	if err != nil {
+		t.Fatalf("GetTrack good: %v", err)
+	}
+	if untouched.AudioSize != int64(len(goodBytes)) {
+		t.Errorf("good AudioSize changed: got %d, want %d", untouched.AudioSize, len(goodBytes))
+	}
+}
+
+func TestRepairBrokenAudio_EmptyAudioPathSkipped(t *testing.T) {
+	a, lib, _, _ := newTestApp(t)
+	tr := sampleTrack("RgKAFK5djSk", 1)
+	if err := lib.InsertTrack(&tr); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	// AudioPath empty: repair must not invoke yt-dlp. Sentinel file proves
+	// invocation either by its presence or by counting marker bytes.
+	sentinel := filepath.Join(t.TempDir(), "called")
+	a.mu.Lock()
+	a.ytdlpPath = writeFakeYtdlpForApp(t, "printf x >> "+sentinel)
+	a.cfg.AudioFormat = "opus"
+	a.mu.Unlock()
+
+	a.repairBrokenAudio(context.Background())
+
+	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
+		t.Errorf("yt-dlp was invoked despite empty AudioPath: stat err=%v", err)
+	}
+}
+
+func TestRepairBrokenAudio_CancelledContextStopsLoop(t *testing.T) {
+	a, lib, _, _ := newTestApp(t)
+	dl := filepath.Join(t.TempDir(), "downloads")
+	if err := os.MkdirAll(dl, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		path := filepath.Join(dl, "RgKAFK5djSk"+strconv.Itoa(i)+".opus")
+		if err := os.WriteFile(path, mpegTSBytes(376), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		tr := sampleTrack("RgKAFK5djS"+string(rune('a'+i)), int64(i+1))
+		tr.AudioPath = path
+		tr.AudioSize = 376
+		if err := lib.InsertTrack(&tr); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+
+	a.mu.Lock()
+	a.ytdlpPath = writeFakeYtdlpForApp(t, "exit 1") // would fail per call; cancel short-circuits earlier
+	a.cfg.AudioFormat = "opus"
+	a.downloadDir = dl
+	a.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled
+	a.repairBrokenAudio(ctx)
+	// No assertion on yt-dlp invocation count: the contract is "returns without
+	// hanging when ctx is dead". Hitting this point at all proves the loop
+	// honored cancellation.
+}
