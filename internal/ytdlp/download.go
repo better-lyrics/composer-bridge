@@ -13,6 +13,12 @@ import (
 // `bestaudio/best` so a video with no preferred codec still falls back to
 // whatever audio (or audio+video) yt-dlp can produce. Unknown keys behave like
 // opus.
+//
+// The opus alternative pins ext=webm because YouTube also serves Opus over HLS
+// (MPEG-TS container). [acodec=opus] alone matches the HLS variant on many
+// videos; yt-dlp dumps the MPEG-TS bytes into a .opus-named file, and the
+// browser <audio> element silently refuses to play it. Forcing the WebM
+// container picks itag 251 (WebM-Opus) which is what browsers expect.
 func FormatSelector(format string) string {
 	switch format {
 	case "m4a":
@@ -22,9 +28,9 @@ func FormatSelector(format string) string {
 	case "mp3":
 		return "bestaudio/best"
 	case "opus", "":
-		return "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best"
+		return "bestaudio[acodec=opus][ext=webm]/bestaudio[ext=webm]/bestaudio/best"
 	default:
-		return "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best"
+		return "bestaudio[acodec=opus][ext=webm]/bestaudio[ext=webm]/bestaudio/best"
 	}
 }
 
