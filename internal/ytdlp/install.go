@@ -365,21 +365,32 @@ func Version(ytdlpPath string) string {
 }
 
 // RefreshDaily runs an immediate check on call, then polls every 24h until
-// ctx is cancelled. The channel is re-read via channelFn on every tick so
-// Settings changes take effect without restarting the app. A return value
-// of "off" from channelFn skips the HTTP fetch for that tick. Failures are
-// logged at warn level and never fatal. The boot-time check matters: with
-// no immediate run, restarts shorter than 24h (typical for a desktop app)
-// would never trigger a refresh and YouTube extractor breakages would
-// linger. onUpgrade fires after every successful download so callers can
-// refresh any cached version string they hold; nil is allowed.
-func RefreshDaily(ctx context.Context, dataDir string, channelFn func() string, onUpgrade func()) {
+// ctx is cancelled. channelFn and overrideFn are re-read on every tick so
+// Settings changes take effect without restarting the app: a non-empty
+// override means the user manages the binary themselves and we skip the
+// fetch entirely, and "off" from channelFn skips the fetch for that tick.
+// Failures are logged at warn level and never fatal. The boot-time check
+// matters: with no immediate run, restarts shorter than 24h (typical for a
+// desktop app) would never trigger a refresh and YouTube extractor
+// breakages would linger. onUpgrade fires after every successful download
+// so callers can refresh any cached version string they hold; nil is
+// allowed.
+func RefreshDaily(ctx context.Context, dataDir string, channelFn, overrideFn func() string, onUpgrade func()) {
 	if channelFn == nil {
 		channelFn = func() string { return "stable" }
 	}
-	if ch := channelFn(); ch != "off" {
-		refreshIfNewer(ctx, dataDir, ch, onUpgrade)
+	if overrideFn == nil {
+		overrideFn = func() string { return "" }
 	}
+	tickOnce := func() {
+		if overrideFn() != "" {
+			return
+		}
+		if ch := channelFn(); ch != "off" {
+			refreshIfNewer(ctx, dataDir, ch, onUpgrade)
+		}
+	}
+	tickOnce()
 	tick := time.NewTicker(ytdlpRefreshEvery)
 	defer tick.Stop()
 	for {
@@ -387,11 +398,7 @@ func RefreshDaily(ctx context.Context, dataDir string, channelFn func() string, 
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			ch := channelFn()
-			if ch == "off" {
-				continue
-			}
-			refreshIfNewer(ctx, dataDir, ch, onUpgrade)
+			tickOnce()
 		}
 	}
 }

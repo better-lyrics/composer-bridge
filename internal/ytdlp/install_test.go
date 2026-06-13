@@ -618,7 +618,7 @@ func TestRefreshDaily_RunsImmediateCheckOnBoot(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RefreshDaily(ctx, dataDir, func() string { return "stable" }, nil)
+		RefreshDaily(ctx, dataDir, func() string { return "stable" }, nil, nil)
 		close(done)
 	}()
 	// Poll for the immediate check, then cancel so the goroutine exits the
@@ -652,7 +652,7 @@ func TestRefreshDaily_OffChannelSkipsImmediateCheck(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		RefreshDaily(ctx, t.TempDir(), func() string { return "off" }, nil)
+		RefreshDaily(ctx, t.TempDir(), func() string { return "off" }, nil, nil)
 		close(done)
 	}()
 	// Give the immediate-check path a chance to fire if it's going to.
@@ -782,7 +782,7 @@ func TestRefreshDaily_TickerHonorsOffAndLiveChannelSwitch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		RefreshDaily(ctx, t.TempDir(), func() string { return *channel.Load() }, nil)
+		RefreshDaily(ctx, t.TempDir(), func() string { return *channel.Load() }, nil, nil)
 		close(done)
 	}()
 	// Let several ticker iterations pass with the channel pinned at "off".
@@ -799,6 +799,62 @@ func TestRefreshDaily_TickerHonorsOffAndLiveChannelSwitch(t *testing.T) {
 	}
 	if hits.Load() == 0 {
 		t.Fatal("stable channel ticker never hit GitHub after live switch")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("RefreshDaily did not exit within 2s of cancel")
+	}
+}
+
+// TestRefreshDaily_OverrideSetMidSessionStopsTicker exercises the I-2 fix:
+// the user's binary-path override is re-read on every tick, so flipping it
+// from empty to a non-empty path mid-session stops the next poll from
+// hitting GitHub (the auto-managed binary is unused once the override is
+// set, so there's no point downloading into it).
+func TestRefreshDaily_OverrideSetMidSessionStopsTicker(t *testing.T) {
+	prev := ytdlpRefreshEvery
+	ytdlpRefreshEvery = 10 * time.Millisecond
+	t.Cleanup(func() { ytdlpRefreshEvery = prev })
+
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tag_name":"x"}`))
+	}))
+	t.Cleanup(srv.Close)
+	redirectLatestAPI(t, srv.URL)
+
+	var override atomic.Pointer[string]
+	empty := ""
+	override.Store(&empty)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		RefreshDaily(ctx, t.TempDir(),
+			func() string { return "stable" },
+			func() string { return *override.Load() },
+			nil)
+		close(done)
+	}()
+	// Confirm the empty-override state hits GitHub.
+	deadline := time.Now().Add(2 * time.Second)
+	for hits.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if hits.Load() == 0 {
+		t.Fatal("empty override should let RefreshDaily poll, never saw a hit")
+	}
+	// Flip override on and confirm hit count stops growing.
+	set := "/opt/yt-dlp/yt-dlp"
+	override.Store(&set)
+	baseline := hits.Load()
+	time.Sleep(100 * time.Millisecond)
+	if grew := hits.Load() - baseline; grew > 0 {
+		t.Errorf("override set mid-session: ticker still polled %d more times, want 0", grew)
 	}
 	cancel()
 	select {
