@@ -65,12 +65,24 @@ func SaveCookies(dataDir, content string) error {
 		return fmt.Errorf("mkdir data dir: %w", err)
 	}
 	dest := CookiesPath(dataDir)
-	tmp := dest + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0o600); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(dest), filepath.Base(dest)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create cookies tmp: %w", err)
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err := f.Write([]byte(content)); err != nil {
+		f.Close()
 		return fmt.Errorf("write cookies tmp: %w", err)
 	}
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		return fmt.Errorf("chmod cookies tmp: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close cookies tmp: %w", err)
+	}
 	if err := os.Rename(tmp, dest); err != nil {
-		_ = os.Remove(tmp)
 		return fmt.Errorf("rename cookies tmp: %w", err)
 	}
 	return nil
