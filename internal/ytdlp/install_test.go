@@ -1,6 +1,7 @@
 package ytdlp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -488,6 +490,49 @@ func TestRefreshOnce_FetchesAndUpdatesBinary(t *testing.T) {
 	}
 	if string(got) != newBinaryContent {
 		t.Errorf("binary not updated: got %q, want %q", got, newBinaryContent)
+	}
+}
+
+// TestInstallBinary_ConcurrentWritersDoNotCorrupt fans out N concurrent
+// installBinary calls against the same finalPath. With a single shared tmp
+// suffix the writers race on os.Create and io.Copy and the rename can land a
+// truncated body. With a per-call unique tmp suffix the final file contents
+// must equal one of the inputs verbatim.
+func TestInstallBinary_ConcurrentWritersDoNotCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	finalPath := filepath.Join(dir, "binary")
+	const N = 8
+	payload := func(i int) []byte {
+		// Each payload is distinct AND large enough that io.Copy can't finish
+		// before a sibling truncates the shared tmp.
+		var b []byte
+		for range 16 * 1024 {
+			b = append(b, byte('A'+i))
+		}
+		return b
+	}
+	want := make(map[string]struct{}, N)
+	for i := range N {
+		want[string(payload(i))] = struct{}{}
+	}
+	var wg sync.WaitGroup
+	for i := range N {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if err := installBinary(finalPath, bytes.NewReader(payload(i))); err != nil {
+				t.Errorf("installBinary[%d]: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	got, err := os.ReadFile(finalPath)
+	if err != nil {
+		t.Fatalf("read final: %v", err)
+	}
+	if _, ok := want[string(got)]; !ok {
+		t.Fatalf("final file is not any complete payload (len=%d); concurrent writers corrupted it", len(got))
 	}
 }
 

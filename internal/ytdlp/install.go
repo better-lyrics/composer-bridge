@@ -271,11 +271,14 @@ func readVersionSidecar(binPath string) string {
 }
 
 func installBinary(finalPath string, body io.Reader) error {
-	tmpPath := finalPath + ".tmp"
-	out, err := os.Create(tmpPath)
+	// CreateTemp gives a unique tmp path per call so concurrent installBinary
+	// invocations (e.g. two SaveConfig-driven RefreshOnce goroutines racing)
+	// cannot truncate each other mid-write.
+	out, err := os.CreateTemp(filepath.Dir(finalPath), filepath.Base(finalPath)+".*.tmp")
 	if err != nil {
 		return err
 	}
+	tmpPath := out.Name()
 	defer os.Remove(tmpPath)
 	if _, err := io.Copy(out, body); err != nil {
 		out.Close()
