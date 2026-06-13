@@ -1123,3 +1123,19 @@ func TestRepairBrokenAudio_CancelledContextStopsLoop(t *testing.T) {
 	// hanging when ctx is dead". Hitting this point at all proves the loop
 	// honored cancellation.
 }
+// -- ForceYtdlpUpdate ---------------------------------------------------------
+
+func TestForceYtdlpUpdate_BinaryOverrideReturnsError(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	a.mu.Lock()
+	a.cfg.YtdlpBinaryPath = "/opt/whatever/yt-dlp"
+	a.mu.Unlock()
+
+	_, err := a.ForceYtdlpUpdate()
+	if err == nil {
+		t.Fatal("ForceYtdlpUpdate with binary override: got nil error, want error")
+	}
+	if !strings.Contains(err.Error(), "/opt/whatever/yt-dlp") {
+		t.Errorf("error should name the override path; got %q", err)
+	}
+}

@@ -807,17 +807,19 @@ func (a *App) ThumbCacheSize() (int64, error) {
 	return total, nil
 }
 
-// ForceYtdlpUpdate re-downloads the yt-dlp binary unconditionally. Returns the
-// version string of the freshly-installed binary.
+// ForceYtdlpUpdate redownloads the yt-dlp binary using the configured channel.
+// Returns the version string of the freshly-installed binary. Returns an error
+// (without touching the binary) when the user has set a binary-path override:
+// in that mode the user manages the binary themselves.
 func (a *App) ForceYtdlpUpdate() (string, error) {
 	a.mu.RLock()
-	prev := a.ytdlpPath
+	channel := a.cfg.YtdlpChannel
+	override := a.cfg.YtdlpBinaryPath
 	a.mu.RUnlock()
-	if prev != "" {
-		_ = os.Remove(prev)
+	if override != "" {
+		return "", fmt.Errorf("binary path override is set; manage %q yourself or clear the override", override)
 	}
-	// TODO(phase-b): switch to ytdlp.ForceUpdate with cfg.YtdlpChannel and honor cfg.YtdlpBinaryPath.
-	path, err := ytdlp.Ensure(context.Background(), a.dataDir, "stable")
+	path, err := ytdlp.ForceUpdate(context.Background(), a.dataDir, channel)
 	if err != nil {
 		return "", err
 	}
