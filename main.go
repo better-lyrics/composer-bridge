@@ -173,6 +173,7 @@ func main() {
 	scheduleYtdlpRefresh(bgCtx, dataDir,
 		func() string { return a.GetConfig().YtdlpChannel },
 		func() string { return a.GetConfig().YtdlpBinaryPath },
+		refreshYtdlpVersion,
 	)
 	go updater.PollDaily(bgCtx, manifestURL, Version, func(info updater.UpdateInfo) {
 		slog.Info("bridge update available", "version", info.Latest, "current", info.Current)
@@ -183,12 +184,13 @@ func main() {
 	})
 
 	a.SetYtdlpVersionFn(getYtdlpVersion)
+	a.SetYtdlpVersionRefresher(refreshYtdlpVersion)
 	a.SetYtdlpRefresher(func() {
 		cfg := a.GetConfig()
 		if cfg.YtdlpBinaryPath != "" {
 			return
 		}
-		ytdlp.RefreshOnce(bgCtx, dataDir, cfg.YtdlpChannel)
+		ytdlp.RefreshOnce(bgCtx, dataDir, cfg.YtdlpChannel, refreshYtdlpVersion)
 	})
 	a.SetBridgeState(holder)
 	a.SetBridge(br)

@@ -59,29 +59,30 @@ const (
 // ytdlpPath, latestUpdate, and manifestURL; everything else is set once in
 // New and never mutated.
 type App struct {
-	library        *library.Library
-	activity       *activity.Log
-	cfgPath        string
-	dataDir        string
-	thumbDir       string
-	logPath        string
-	version        string
-	ctx            context.Context
-	hideWindow     func(context.Context)
-	showWindow     func(context.Context)
-	ytdlpVersion   func() string
-	ytdlpRefresher func()
-	state          *bridgestate.Holder
-	bridge         *bridge.Bridge
-	statusEmitter  func(ctx context.Context, name string, data any)
-	unsubStatus    func()
-	quitting       atomic.Int32
-	mu             sync.RWMutex
-	cfg            config.Config
-	downloadDir    string
-	ytdlpPath      string
-	latestUpdate   *updater.UpdateInfo
-	manifestURL    string
+	library               *library.Library
+	activity              *activity.Log
+	cfgPath               string
+	dataDir               string
+	thumbDir              string
+	logPath               string
+	version               string
+	ctx                   context.Context
+	hideWindow            func(context.Context)
+	showWindow            func(context.Context)
+	ytdlpVersion          func() string
+	ytdlpRefresher        func()
+	ytdlpVersionRefresher func()
+	state                 *bridgestate.Holder
+	bridge                *bridge.Bridge
+	statusEmitter         func(ctx context.Context, name string, data any)
+	unsubStatus           func()
+	quitting              atomic.Int32
+	mu                    sync.RWMutex
+	cfg                   config.Config
+	downloadDir           string
+	ytdlpPath             string
+	latestUpdate          *updater.UpdateInfo
+	manifestURL           string
 }
 
 // New builds an App. Caller retains ownership of lib and act: App does not close them.
@@ -532,6 +533,16 @@ func (a *App) SetYtdlpRefresher(fn func()) {
 	a.mu.Unlock()
 }
 
+// SetYtdlpVersionRefresher installs a callback fired after every successful
+// yt-dlp install or upgrade so the cached version string main.go serves to
+// /health and the Settings panel stays fresh without an app restart. Both
+// ForceYtdlpUpdate and the long-running refresh goroutines invoke it.
+func (a *App) SetYtdlpVersionRefresher(fn func()) {
+	a.mu.Lock()
+	a.ytdlpVersionRefresher = fn
+	a.mu.Unlock()
+}
+
 // SetBridgeState wires the holder that Wails-bound status methods read from
 // and that Startup subscribes to for event emission. Called by main.go before
 // wails.Run so the rest of the app sees a non-nil holder.
@@ -844,7 +855,11 @@ func (a *App) ForceYtdlpUpdate() (string, error) {
 	}
 	a.mu.Lock()
 	a.ytdlpPath = path
+	versionRefresher := a.ytdlpVersionRefresher
 	a.mu.Unlock()
+	if versionRefresher != nil {
+		versionRefresher()
+	}
 	return ytdlp.Version(path), nil
 }
 

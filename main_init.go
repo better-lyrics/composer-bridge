@@ -25,12 +25,14 @@ func bootstrapYtdlp(ctx context.Context, dataDir, channel, override string) (str
 // scheduleYtdlpRefresh starts the daily upgrade poll. The override is read
 // once at goroutine entry: if the user clears it mid-session the refresh
 // stays disabled until restart (or until SaveConfig kicks a new poll).
-func scheduleYtdlpRefresh(ctx context.Context, dataDir string, channelFn, overrideFn func() string) {
+// onUpgrade is forwarded to RefreshDaily so every successful tick-driven
+// upgrade also refreshes main.go's cached version string.
+func scheduleYtdlpRefresh(ctx context.Context, dataDir string, channelFn, overrideFn func() string, onUpgrade func()) {
 	go func() {
 		if overrideFn() != "" {
 			return
 		}
-		ytdlp.RefreshDaily(ctx, dataDir, channelFn)
+		ytdlp.RefreshDaily(ctx, dataDir, channelFn, onUpgrade)
 	}()
 }
 

@@ -13,6 +13,6 @@ func bootstrapYtdlp(_ context.Context, _ string, _ string, _ string) (string, er
 	return "", nil
 }
 
-func scheduleYtdlpRefresh(_ context.Context, _ string, _, _ func() string) {}
+func scheduleYtdlpRefresh(_ context.Context, _ string, _, _ func() string, _ func()) {}
 
 func bootstrapDeno(_ string) {}

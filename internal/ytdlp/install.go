@@ -331,13 +331,14 @@ func Version(ytdlpPath string) string {
 // logged at warn level and never fatal. The boot-time check matters: with
 // no immediate run, restarts shorter than 24h (typical for a desktop app)
 // would never trigger a refresh and YouTube extractor breakages would
-// linger.
-func RefreshDaily(ctx context.Context, dataDir string, channelFn func() string) {
+// linger. onUpgrade fires after every successful download so callers can
+// refresh any cached version string they hold; nil is allowed.
+func RefreshDaily(ctx context.Context, dataDir string, channelFn func() string, onUpgrade func()) {
 	if channelFn == nil {
 		channelFn = func() string { return "stable" }
 	}
 	if ch := channelFn(); ch != "off" {
-		refreshIfNewer(ctx, dataDir, ch)
+		refreshIfNewer(ctx, dataDir, ch, onUpgrade)
 	}
 	tick := time.NewTicker(ytdlpRefreshEvery)
 	defer tick.Stop()
@@ -350,7 +351,7 @@ func RefreshDaily(ctx context.Context, dataDir string, channelFn func() string) 
 			if ch == "off" {
 				continue
 			}
-			refreshIfNewer(ctx, dataDir, ch)
+			refreshIfNewer(ctx, dataDir, ch, onUpgrade)
 		}
 	}
 }
@@ -360,18 +361,22 @@ func RefreshDaily(ctx context.Context, dataDir string, channelFn func() string) 
 // semantics as one RefreshDaily tick. Exposed so callers outside the package
 // (notably SaveConfig handlers) can kick a refresh without waiting for the
 // next 24h tick. Returns nothing because refreshIfNewer logs warns rather
-// than bubbling errors, consistent with the daily-poll pattern.
-func RefreshOnce(ctx context.Context, dataDir, channel string) {
+// than bubbling errors, consistent with the daily-poll pattern. onUpgrade
+// fires after a successful download so the caller can refresh any cached
+// version string; nil is allowed.
+func RefreshOnce(ctx context.Context, dataDir, channel string, onUpgrade func()) {
 	if channel == "off" {
 		return
 	}
-	refreshIfNewer(ctx, dataDir, channel)
+	refreshIfNewer(ctx, dataDir, channel, onUpgrade)
 }
 
 // refreshIfNewer fetches the latest GitHub release and redownloads when the
 // local binary is stale or unrunnable. If Version returns "unknown", the
 // existing binary is unrunnable; redownload to recover rather than skipping.
-func refreshIfNewer(ctx context.Context, dataDir, channel string) {
+// onUpgrade fires once after a successful download so callers can refresh
+// any cached version string; nil skips the notification.
+func refreshIfNewer(ctx context.Context, dataDir, channel string, onUpgrade func()) {
 	binPath, err := binaryPath(dataDir)
 	if err != nil {
 		slog.Warn("yt-dlp daily check: resolve path", "err", err, "dataDir", dataDir)
@@ -390,5 +395,9 @@ func refreshIfNewer(ctx context.Context, dataDir, channel string) {
 	if err := downloadLatest(ctx, binPath, channel); err != nil {
 		assetName, _ := ytdlpAssetName()
 		slog.Warn("yt-dlp upgrade failed", "err", err, "binPath", binPath, "assetName", assetName, "dataDir", dataDir)
+		return
+	}
+	if onUpgrade != nil {
+		onUpgrade()
 	}
 }

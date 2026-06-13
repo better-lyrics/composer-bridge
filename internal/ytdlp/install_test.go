@@ -269,7 +269,7 @@ func TestRefreshIfNewer_RedownloadsWhenVersionUnknown(t *testing.T) {
 		t.Logf("Version(fake): %q", got)
 	}
 
-	refreshIfNewer(context.Background(), dataDir, "stable")
+	refreshIfNewer(context.Background(), dataDir, "stable", nil)
 
 	if got := assetCalls.Load(); got < 1 {
 		t.Errorf("asset endpoint: got %d hits, want >=1", got)
@@ -280,6 +280,60 @@ func TestRefreshIfNewer_RedownloadsWhenVersionUnknown(t *testing.T) {
 	}
 	if string(got) != newBinaryContent {
 		t.Errorf("binary contents: got %q, want %q", got, newBinaryContent)
+	}
+}
+
+// TestRefreshIfNewer_FiresOnUpgradeAfterDownload verifies the onUpgrade
+// callback runs exactly once when refreshIfNewer detects a newer release on
+// disk and replaces the binary. main.go installs a closure that refreshes its
+// atomic version cache, so without this hook the /health endpoint and
+// Settings panel keep reporting the boot-time version until restart.
+func TestRefreshIfNewer_FiresOnUpgradeAfterDownload(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires /bin/sh for the fake yt-dlp")
+	}
+	shortenRetryBackoff(t)
+
+	const newBinaryContent = "FRESH_BINARY"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/asset", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(newBinaryContent))
+	})
+	var apiURL string
+	mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, _ *http.Request) {
+		assetName, err := ytdlpAssetName()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(ghRelease{
+			TagName: "2025.99.99",
+			Assets: []ghAsset{
+				{Name: assetName, DownloadURL: apiURL + "/asset"},
+			},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	apiURL = srv.URL
+	redirectLatestAPI(t, srv.URL+"/releases/latest")
+
+	dataDir := t.TempDir()
+	binPath, err := binaryPath(dataDir)
+	if err != nil {
+		t.Fatalf("binaryPath: %v", err)
+	}
+	// Seed a stale binary so refreshIfNewer's Version != TagName branch fires.
+	script := "#!/bin/sh\necho '2024.01.01'\n"
+	if err := os.WriteFile(binPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake yt-dlp: %v", err)
+	}
+
+	var calls atomic.Int32
+	refreshIfNewer(context.Background(), dataDir, "stable", func() { calls.Add(1) })
+
+	if got := calls.Load(); got != 1 {
+		t.Errorf("onUpgrade callback: got %d calls, want 1", got)
 	}
 }
 
@@ -397,7 +451,7 @@ func TestRefreshDaily_RunsImmediateCheckOnBoot(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RefreshDaily(ctx, dataDir, func() string { return "stable" })
+		RefreshDaily(ctx, dataDir, func() string { return "stable" }, nil)
 		close(done)
 	}()
 	// Poll for the immediate check, then cancel so the goroutine exits the
@@ -431,7 +485,7 @@ func TestRefreshDaily_OffChannelSkipsImmediateCheck(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		RefreshDaily(ctx, t.TempDir(), func() string { return "off" })
+		RefreshDaily(ctx, t.TempDir(), func() string { return "off" }, nil)
 		close(done)
 	}()
 	// Give the immediate-check path a chance to fire if it's going to.
@@ -482,7 +536,7 @@ func TestRefreshOnce_FetchesAndUpdatesBinary(t *testing.T) {
 	apiURL = srv.URL
 	redirectLatestAPI(t, srv.URL+"/releases/latest")
 
-	RefreshOnce(context.Background(), dataDir, "stable")
+	RefreshOnce(context.Background(), dataDir, "stable", nil)
 
 	got, err := os.ReadFile(binPath)
 	if err != nil {
@@ -561,7 +615,7 @@ func TestRefreshDaily_TickerHonorsOffAndLiveChannelSwitch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		RefreshDaily(ctx, t.TempDir(), func() string { return *channel.Load() })
+		RefreshDaily(ctx, t.TempDir(), func() string { return *channel.Load() }, nil)
 		close(done)
 	}()
 	// Let several ticker iterations pass with the channel pinned at "off".
