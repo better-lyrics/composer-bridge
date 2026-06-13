@@ -86,14 +86,19 @@ func binaryPath(dataDir string) (string, error) {
 // ForceUpdate redownloads the channel's latest yt-dlp release into dataDir,
 // bypassing Ensure's existence check. On failure the prior binary is preserved
 // because installBinary uses atomic tmp+rename: the on-disk file is only
-// replaced after a complete successful download.
-func ForceUpdate(ctx context.Context, dataDir, channel string) (string, error) {
+// replaced after a complete successful download. onUpgrade fires after a
+// successful download so callers can refresh cached state (e.g. the version
+// string main.go serves to /health); nil is allowed.
+func ForceUpdate(ctx context.Context, dataDir, channel string, onUpgrade func()) (string, error) {
 	binPath, err := binaryPath(dataDir)
 	if err != nil {
 		return "", err
 	}
 	if err := downloadLatest(ctx, binPath, channel); err != nil {
 		return "", fmt.Errorf("download yt-dlp: %w", err)
+	}
+	if onUpgrade != nil {
+		onUpgrade()
 	}
 	return binPath, nil
 }

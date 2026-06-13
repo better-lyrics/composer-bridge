@@ -356,8 +356,12 @@ func TestForceUpdate_KeepsExistingBinaryOnFailure(t *testing.T) {
 	redirectLatestAPI(t, srv.URL)
 	shortenRetryBackoff(t)
 
-	if _, err := ForceUpdate(context.Background(), dataDir, "stable"); err == nil {
+	var onUpgrade atomic.Int32
+	if _, err := ForceUpdate(context.Background(), dataDir, "stable", func() { onUpgrade.Add(1) }); err == nil {
 		t.Fatal("expected error from forced update against a 500 server")
+	}
+	if got := onUpgrade.Load(); got != 0 {
+		t.Errorf("failed force update fired onUpgrade %d times, want 0", got)
 	}
 	got, err := os.ReadFile(binPath)
 	if err != nil {
@@ -404,9 +408,13 @@ func TestForceUpdate_OverwritesOnSuccess(t *testing.T) {
 	apiURL = srv.URL
 	redirectLatestAPI(t, srv.URL+"/releases/latest")
 
-	gotPath, err := ForceUpdate(context.Background(), dataDir, "stable")
+	var onUpgrade atomic.Int32
+	gotPath, err := ForceUpdate(context.Background(), dataDir, "stable", func() { onUpgrade.Add(1) })
 	if err != nil {
 		t.Fatalf("ForceUpdate: %v", err)
+	}
+	if got := onUpgrade.Load(); got != 1 {
+		t.Errorf("onUpgrade fired %d times, want 1", got)
 	}
 	if gotPath != binPath {
 		t.Errorf("returned path: got %q, want %q", gotPath, binPath)

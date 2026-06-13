@@ -533,10 +533,12 @@ func (a *App) SetYtdlpRefresher(fn func()) {
 	a.mu.Unlock()
 }
 
-// SetYtdlpVersionRefresher installs a callback fired after every successful
-// yt-dlp install or upgrade so the cached version string main.go serves to
-// /health and the Settings panel stays fresh without an app restart. Both
-// ForceYtdlpUpdate and the long-running refresh goroutines invoke it.
+// SetYtdlpVersionRefresher installs a callback fired after a successful
+// ForceYtdlpUpdate so the cached version string main.go serves to /health and
+// the Settings panel stays fresh without an app restart. main.go forwards the
+// same closure into RefreshDaily and RefreshOnce as their onUpgrade hook, so
+// daily-tick and SaveConfig-kick upgrades refresh the cache too without going
+// through this setter.
 func (a *App) SetYtdlpVersionRefresher(fn func()) {
 	a.mu.Lock()
 	a.ytdlpVersionRefresher = fn
@@ -849,17 +851,16 @@ func (a *App) ForceYtdlpUpdate() (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	path, err := ytdlp.ForceUpdate(ctx, a.dataDir, channel)
+	a.mu.RLock()
+	versionRefresher := a.ytdlpVersionRefresher
+	a.mu.RUnlock()
+	path, err := ytdlp.ForceUpdate(ctx, a.dataDir, channel, versionRefresher)
 	if err != nil {
 		return "", err
 	}
 	a.mu.Lock()
 	a.ytdlpPath = path
-	versionRefresher := a.ytdlpVersionRefresher
 	a.mu.Unlock()
-	if versionRefresher != nil {
-		versionRefresher()
-	}
 	return ytdlp.Version(path), nil
 }
 

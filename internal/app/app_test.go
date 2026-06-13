@@ -1164,28 +1164,6 @@ func TestSaveConfig_ChannelChangeKicksRefresher(t *testing.T) {
 
 // -- ForceYtdlpUpdate ---------------------------------------------------------
 
-// TestSetYtdlpVersionRefresher_StoresCallback asserts the setter installed
-// for main.go's atomic version cache lands on the App without panicking and
-// is callable. Full ForceYtdlpUpdate -> refresher coverage would require an
-// httptest server reachable from the unexported ytdlp seam; this guards the
-// shape of the wiring main.go relies on.
-func TestSetYtdlpVersionRefresher_StoresCallback(t *testing.T) {
-	a, _, _, _ := newTestApp(t)
-	var calls atomic.Int32
-	a.SetYtdlpVersionRefresher(func() { calls.Add(1) })
-
-	a.mu.RLock()
-	got := a.ytdlpVersionRefresher
-	a.mu.RUnlock()
-	if got == nil {
-		t.Fatal("ytdlpVersionRefresher: got nil after SetYtdlpVersionRefresher")
-	}
-	got()
-	if n := calls.Load(); n != 1 {
-		t.Errorf("refresher invocation count: got %d, want 1", n)
-	}
-}
-
 func TestForceYtdlpUpdate_BinaryOverrideReturnsError(t *testing.T) {
 	a, _, _, _ := newTestApp(t)
 	a.mu.Lock()
