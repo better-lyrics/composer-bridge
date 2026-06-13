@@ -290,7 +290,6 @@ func installBinary(finalPath string, body io.Reader) error {
 	return os.Rename(tmpPath, finalPath)
 }
 
-
 // Version returns the yt-dlp release tag we last installed at ytdlpPath. The
 // sidecar file is preferred because execing yt-dlp_macos from inside the macOS
 // .app bundle is killed by Gatekeeper (SIGKILL after ~30s) before it can print

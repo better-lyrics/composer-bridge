@@ -59,29 +59,29 @@ const (
 // ytdlpPath, latestUpdate, and manifestURL; everything else is set once in
 // New and never mutated.
 type App struct {
-	library       *library.Library
-	activity      *activity.Log
-	cfgPath       string
-	dataDir       string
-	thumbDir      string
-	logPath       string
-	version       string
-	ctx           context.Context
-	hideWindow      func(context.Context)
-	showWindow      func(context.Context)
-	ytdlpVersion    func() string
-	ytdlpRefresher  func()
-	state         *bridgestate.Holder
-	bridge        *bridge.Bridge
-	statusEmitter func(ctx context.Context, name string, data any)
-	unsubStatus   func()
-	quitting      atomic.Int32
-	mu            sync.RWMutex
-	cfg           config.Config
-	downloadDir   string
-	ytdlpPath     string
-	latestUpdate  *updater.UpdateInfo
-	manifestURL   string
+	library        *library.Library
+	activity       *activity.Log
+	cfgPath        string
+	dataDir        string
+	thumbDir       string
+	logPath        string
+	version        string
+	ctx            context.Context
+	hideWindow     func(context.Context)
+	showWindow     func(context.Context)
+	ytdlpVersion   func() string
+	ytdlpRefresher func()
+	state          *bridgestate.Holder
+	bridge         *bridge.Bridge
+	statusEmitter  func(ctx context.Context, name string, data any)
+	unsubStatus    func()
+	quitting       atomic.Int32
+	mu             sync.RWMutex
+	cfg            config.Config
+	downloadDir    string
+	ytdlpPath      string
+	latestUpdate   *updater.UpdateInfo
+	manifestURL    string
 }
 
 // New builds an App. Caller retains ownership of lib and act: App does not close them.

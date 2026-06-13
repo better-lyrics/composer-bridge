@@ -235,11 +235,11 @@ func main() {
 	trayCtrl.Register()
 
 	err = wails.Run(&options.App{
-		Title:            "Composer Bridge",
-		Width:            1024,
-		Height:           700,
-		MinWidth:         800,
-		MinHeight:        540,
+		Title:     "Composer Bridge",
+		Width:     1024,
+		Height:    700,
+		MinWidth:  800,
+		MinHeight: 540,
 		AssetServer: &assetserver.Options{
 			Assets:     assets,
 			Middleware: assetserver.ChainMiddleware(platformInjectMiddleware),
