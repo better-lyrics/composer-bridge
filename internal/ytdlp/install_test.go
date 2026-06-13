@@ -848,13 +848,16 @@ func TestRefreshDaily_OverrideSetMidSessionStopsTicker(t *testing.T) {
 	if hits.Load() == 0 {
 		t.Fatal("empty override should let RefreshDaily poll, never saw a hit")
 	}
-	// Flip override on and confirm hit count stops growing.
+	// Flip override on, then let any in-flight tick (already past the override
+	// gate at the top of tickOnce) drain so the baseline reflects post-flip
+	// quiescence rather than mid-flight state.
 	set := "/opt/yt-dlp/yt-dlp"
 	override.Store(&set)
+	time.Sleep(100 * time.Millisecond)
 	baseline := hits.Load()
 	time.Sleep(100 * time.Millisecond)
 	if grew := hits.Load() - baseline; grew > 0 {
-		t.Errorf("override set mid-session: ticker still polled %d more times, want 0", grew)
+		t.Errorf("override set mid-session: ticker still polled %d more times after quiesce, want 0", grew)
 	}
 	cancel()
 	select {

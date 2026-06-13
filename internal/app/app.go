@@ -56,8 +56,9 @@ const (
 // App wires the bridge's storage and config into Wails-callable methods.
 // Wails dispatches JS calls on separate goroutines, so any field a method both
 // reads and writes needs mutex protection. mu guards cfg, downloadDir,
-// ytdlpPath, latestUpdate, and manifestURL; everything else is set once in
-// New and never mutated.
+// ytdlpPath, latestUpdate, manifestURL, ytdlpRefresher, ytdlpVersionRefresher,
+// state, bridge, statusEmitter, and unsubStatus; everything else is set once
+// in New and never mutated.
 type App struct {
 	library               *library.Library
 	activity              *activity.Log
