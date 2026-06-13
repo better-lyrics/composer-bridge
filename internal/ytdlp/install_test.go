@@ -36,7 +36,7 @@ func redirectLatestAPI(t *testing.T, url string) {
 }
 
 // NOTE: the GitHub Releases download flow against the real network is not
-// covered here; tests use httptest.Server through the ytdlpLatestAPI seam.
+// covered here; tests use httptest.Server through redirectLatestAPI.
 
 func TestChannelAPIURL(t *testing.T) {
 	cases := []struct {
