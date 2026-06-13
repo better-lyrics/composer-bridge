@@ -71,8 +71,6 @@ func resolveAssetName(goos, goarch string) (string, error) {
 			return "yt-dlp_linux", nil
 		case "arm64":
 			return "yt-dlp_linux_aarch64", nil
-		case "arm":
-			return "yt-dlp_linux_armv7l", nil
 		}
 	case "windows":
 		return "yt-dlp.exe", nil

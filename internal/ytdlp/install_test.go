@@ -81,7 +81,7 @@ func TestResolveAssetName_Matrix(t *testing.T) {
 		{"darwin", "arm64", "yt-dlp_macos", false},
 		{"linux", "amd64", "yt-dlp_linux", false},
 		{"linux", "arm64", "yt-dlp_linux_aarch64", false},
-		{"linux", "arm", "yt-dlp_linux_armv7l", false},
+		{"linux", "arm", "", true},
 		{"linux", "mips", "", true},
 		{"windows", "amd64", "yt-dlp.exe", false},
 		{"windows", "arm64", "yt-dlp.exe", false},
