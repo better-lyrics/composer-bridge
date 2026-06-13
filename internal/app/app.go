@@ -816,7 +816,8 @@ func (a *App) ForceYtdlpUpdate() (string, error) {
 	if prev != "" {
 		_ = os.Remove(prev)
 	}
-	path, err := ytdlp.Ensure(a.dataDir, "stable")
+	// TODO(phase-b): switch to ytdlp.ForceUpdate with cfg.YtdlpChannel and honor cfg.YtdlpBinaryPath.
+	path, err := ytdlp.Ensure(context.Background(), a.dataDir, "stable")
 	if err != nil {
 		return "", err
 	}

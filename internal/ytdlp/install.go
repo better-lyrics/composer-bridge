@@ -98,8 +98,10 @@ func ForceUpdate(ctx context.Context, dataDir, channel string) (string, error) {
 	return binPath, nil
 }
 
-// Ensure returns the path to a working yt-dlp in dataDir, downloading on first run.
-func Ensure(dataDir, channel string) (string, error) {
+// Ensure returns the path to a working yt-dlp in dataDir, downloading on first
+// run. ctx governs the HTTP fetch and retry backoff so a stuck download can be
+// cancelled at app shutdown.
+func Ensure(ctx context.Context, dataDir, channel string) (string, error) {
 	binPath, err := binaryPath(dataDir)
 	if err != nil {
 		return "", err
@@ -107,8 +109,8 @@ func Ensure(dataDir, channel string) (string, error) {
 	if _, err := os.Stat(binPath); err == nil {
 		return binPath, nil
 	}
-	slog.Info("yt-dlp not found, downloading", "path", binPath)
-	if err := downloadLatest(context.Background(), binPath, channel); err != nil {
+	slog.Info("yt-dlp not found, downloading", "path", binPath, "channel", channel)
+	if err := downloadLatest(ctx, binPath, channel); err != nil {
 		return "", fmt.Errorf("download yt-dlp: %w", err)
 	}
 	return binPath, nil
@@ -362,14 +364,14 @@ func refreshIfNewer(ctx context.Context, dataDir, channel string) {
 	}
 	rel, err := fetchLatestRelease(ctx, channelAPIURL(channel))
 	if err != nil {
-		slog.Warn("yt-dlp daily check: fetch release", "err", err, "binPath", binPath, "dataDir", dataDir)
+		slog.Warn("yt-dlp daily check: fetch release", "err", err, "channel", channel, "binPath", binPath, "dataDir", dataDir)
 		return
 	}
 	current := Version(binPath)
 	if current == rel.TagName {
 		return
 	}
-	slog.Info("yt-dlp upgrade", "from", current, "to", rel.TagName)
+	slog.Info("yt-dlp upgrade", "from", current, "to", rel.TagName, "channel", channel)
 	if err := downloadLatest(ctx, binPath, channel); err != nil {
 		assetName, _ := ytdlpAssetName()
 		slog.Warn("yt-dlp upgrade failed", "err", err, "binPath", binPath, "assetName", assetName, "dataDir", dataDir)

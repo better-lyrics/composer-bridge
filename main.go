@@ -77,7 +77,7 @@ func main() {
 
 	installGoroutineDumpSignal(dataDir)
 
-	ytdlpPath, err := bootstrapYtdlp(dataDir)
+	ytdlpPath, err := bootstrapYtdlp(context.Background(), dataDir)
 	if err != nil {
 		fatal("ensure yt-dlp: %v", err)
 	}

@@ -13,11 +13,13 @@ import (
 // refresh. Skipped under the `bindings` build tag (used by wails build's
 // "Generating bindings" phase) because that phase runs main() just to
 // introspect bound types and shouldn't hit GitHub's release API.
-func bootstrapYtdlp(dataDir string) (string, error) {
-	return ytdlp.Ensure(dataDir, "stable")
+func bootstrapYtdlp(ctx context.Context, dataDir string) (string, error) {
+	// TODO(phase-b): read channel + binary-path override from cfg.
+	return ytdlp.Ensure(ctx, dataDir, "stable")
 }
 
 func scheduleYtdlpRefresh(ctx context.Context, dataDir string) {
+	// TODO(phase-b): replace the constant callback with cfg.YtdlpChannel.
 	go ytdlp.RefreshDaily(ctx, dataDir, func() string { return "stable" })
 }
 
