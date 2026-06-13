@@ -65,6 +65,7 @@ func FetchInfo(ctx context.Context, ytdlpPath, videoID, cookiesPath string, pref
 	args = append(args, videoURL(videoID))
 	cmd := exec.CommandContext(ctx, ytdlpPath, args...)
 	cmd.WaitDelay = killWaitDelay
+	cmd.Env = execEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -101,6 +102,7 @@ func StreamAudio(ctx context.Context, ytdlpPath, videoID, format, cookiesPath st
 	args = append(args, videoURL(videoID))
 	cmd := exec.CommandContext(ctx, ytdlpPath, args...)
 	cmd.WaitDelay = killWaitDelay
+	cmd.Env = execEnv()
 	var stderr bytes.Buffer
 	cmd.Stdout = w
 	cmd.Stderr = &stderr
