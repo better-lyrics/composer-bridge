@@ -439,12 +439,12 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	// toggle that happened while the form was open.
 	a.mu.RLock()
 	cfg.ServerEnabled = a.cfg.ServerEnabled
-	prevChannel := a.cfg.YtdlpChannel
 	a.mu.RUnlock()
 	if err := config.Save(a.cfgPath, cfg); err != nil {
 		return err
 	}
 	a.mu.Lock()
+	prevChannel := a.cfg.YtdlpChannel
 	prevOpenAtLogin := a.cfg.OpenAtLogin
 	a.cfg = cfg
 	a.downloadDir = resolveDownloadDir(cfg.DownloadDir)
@@ -847,6 +847,9 @@ func (a *App) ForceYtdlpUpdate() (string, error) {
 	a.mu.RUnlock()
 	if override != "" {
 		return "", fmt.Errorf("binary path override is set to %s; force update is disabled. Clear the override in Settings to use auto-updates", override)
+	}
+	if channel == "off" {
+		return "", fmt.Errorf("yt-dlp auto-updates are turned off; pick stable or nightly in Settings to use force update")
 	}
 	ctx := a.ctx
 	if ctx == nil {

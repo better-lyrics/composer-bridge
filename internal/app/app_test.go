@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1124,6 +1125,7 @@ func TestRepairBrokenAudio_CancelledContextStopsLoop(t *testing.T) {
 	// hanging when ctx is dead". Hitting this point at all proves the loop
 	// honored cancellation.
 }
+
 // TestSaveConfig_ChannelChangeKicksRefresher asserts that flipping
 // cfg.YtdlpChannel via SaveConfig fires the installed refresher exactly once,
 // and that a SaveConfig with the same channel does not fire it. Without this,
@@ -1162,6 +1164,61 @@ func TestSaveConfig_ChannelChangeKicksRefresher(t *testing.T) {
 	}
 }
 
+// TestSaveConfig_ConcurrentIdenticalFlipsKickRefresherOnce regression-tests
+// the read-release-reacquire race: with prevChannel captured outside the
+// write Lock, two concurrent SaveConfigs flipping stable->nightly would each
+// see prev="stable" and each fire the refresher, even though only one real
+// transition occurred. With prevChannel captured inside the same critical
+// section as the cfg swap, the second writer sees prev="nightly" (set by the
+// first) and skips firing. config.Save is not itself concurrent-safe across
+// a single tmp filename, so the helper retries on rename collisions.
+func TestSaveConfig_ConcurrentIdenticalFlipsKickRefresherOnce(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	a.mu.Lock()
+	a.cfg.YtdlpChannel = "stable"
+	a.mu.Unlock()
+
+	var calls atomic.Int32
+	a.SetYtdlpRefresher(func() { calls.Add(1) })
+
+	saveWithRetry := func(cfg config.Config) error {
+		for i := 0; i < 20; i++ {
+			err := a.SaveConfig(cfg)
+			if err == nil {
+				return nil
+			}
+			if !strings.Contains(err.Error(), "rename config tmp") {
+				return err
+			}
+			time.Sleep(time.Millisecond)
+		}
+		return fmt.Errorf("SaveConfig kept colliding on tmp rename")
+	}
+
+	cfg := a.GetConfig()
+	cfg.YtdlpChannel = "nightly"
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	start := make(chan struct{})
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+			if err := saveWithRetry(cfg); err != nil {
+				t.Errorf("SaveConfig: %v", err)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	time.Sleep(50 * time.Millisecond)
+	if got := calls.Load(); got != 1 {
+		t.Errorf("concurrent identical flips kicked refresher %d times, want 1", got)
+	}
+}
+
 // -- ForceYtdlpUpdate ---------------------------------------------------------
 
 func TestForceYtdlpUpdate_BinaryOverrideReturnsError(t *testing.T) {
@@ -1176,5 +1233,26 @@ func TestForceYtdlpUpdate_BinaryOverrideReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "/opt/whatever/yt-dlp") {
 		t.Errorf("error should name the override path; got %q", err)
+	}
+}
+
+// TestForceYtdlpUpdate_OffChannelReturnsError covers the symmetric gate to the
+// override check: a user who turned auto-updates off and then clicks Force
+// Update should get a clear error rather than a silent stable-channel
+// download, since channelAPIURL falls through to stable for any non-nightly
+// channel string.
+func TestForceYtdlpUpdate_OffChannelReturnsError(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	a.mu.Lock()
+	a.cfg.YtdlpBinaryPath = ""
+	a.cfg.YtdlpChannel = "off"
+	a.mu.Unlock()
+
+	_, err := a.ForceYtdlpUpdate()
+	if err == nil {
+		t.Fatal("ForceYtdlpUpdate with channel=off: got nil error, want error")
+	}
+	if !strings.Contains(err.Error(), "turned off") {
+		t.Errorf("error should explain the off channel; got %q", err)
 	}
 }
