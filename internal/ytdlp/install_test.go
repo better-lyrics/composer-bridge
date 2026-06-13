@@ -281,6 +281,96 @@ func TestRefreshIfNewer_RedownloadsWhenVersionUnknown(t *testing.T) {
 	}
 }
 
+// -- A2: ForceUpdate ---------------------------------------------------------
+
+func TestForceUpdate_KeepsExistingBinaryOnFailure(t *testing.T) {
+	dataDir := t.TempDir()
+	name, err := ytdlpAssetName()
+	if err != nil {
+		t.Skipf("no yt-dlp asset for this platform: %v", err)
+	}
+	binPath := filepath.Join(dataDir, name)
+	if err := os.WriteFile(binPath, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	redirectLatestAPI(t, srv.URL)
+	shortenRetryBackoff(t)
+
+	if _, err := ForceUpdate(context.Background(), dataDir, "stable"); err == nil {
+		t.Fatal("expected error from forced update against a 500 server")
+	}
+	got, err := os.ReadFile(binPath)
+	if err != nil {
+		t.Fatalf("binary should still exist: %v", err)
+	}
+	if string(got) != "OLD" {
+		t.Errorf("binary mutated by failed force update: got %q, want %q", got, "OLD")
+	}
+}
+
+func TestForceUpdate_OverwritesOnSuccess(t *testing.T) {
+	dataDir := t.TempDir()
+	binPath, err := binaryPath(dataDir)
+	if err != nil {
+		t.Skipf("no yt-dlp asset for this platform: %v", err)
+	}
+	if err := os.WriteFile(binPath, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const newBinaryContent = "NEW"
+	const tagName = "2025.99.99"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/asset", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(newBinaryContent))
+	})
+	var apiURL string
+	mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, _ *http.Request) {
+		assetName, err := ytdlpAssetName()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(ghRelease{
+			TagName: tagName,
+			Assets: []ghAsset{
+				{Name: assetName, DownloadURL: apiURL + "/asset"},
+			},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	apiURL = srv.URL
+	redirectLatestAPI(t, srv.URL+"/releases/latest")
+
+	gotPath, err := ForceUpdate(context.Background(), dataDir, "stable")
+	if err != nil {
+		t.Fatalf("ForceUpdate: %v", err)
+	}
+	if gotPath != binPath {
+		t.Errorf("returned path: got %q, want %q", gotPath, binPath)
+	}
+	contents, err := os.ReadFile(binPath)
+	if err != nil {
+		t.Fatalf("read updated binary: %v", err)
+	}
+	if string(contents) != newBinaryContent {
+		t.Errorf("binary contents: got %q, want %q", contents, newBinaryContent)
+	}
+	sidecar, err := os.ReadFile(versionSidecarPath(binPath))
+	if err != nil {
+		t.Fatalf("read sidecar: %v", err)
+	}
+	if string(sidecar) != tagName {
+		t.Errorf("sidecar contents: got %q, want %q", sidecar, tagName)
+	}
+}
+
 // -- I1: boot-time check ------------------------------------------------------
 
 // TestRefreshDaily_RunsImmediateCheckOnBoot starts RefreshDaily, cancels its

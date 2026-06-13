@@ -80,6 +80,21 @@ func binaryPath(dataDir string) (string, error) {
 	return filepath.Join(dataDir, name), nil
 }
 
+// ForceUpdate redownloads the channel's latest yt-dlp release into dataDir,
+// bypassing Ensure's existence check. On failure the prior binary is preserved
+// because installBinary uses atomic tmp+rename: the on-disk file is only
+// replaced after a complete successful download.
+func ForceUpdate(ctx context.Context, dataDir, channel string) (string, error) {
+	binPath, err := binaryPath(dataDir)
+	if err != nil {
+		return "", err
+	}
+	if err := downloadLatest(ctx, binPath, channel); err != nil {
+		return "", fmt.Errorf("download yt-dlp: %w", err)
+	}
+	return binPath, nil
+}
+
 // Ensure returns the path to a working yt-dlp in dataDir, downloading on first run.
 func Ensure(dataDir, channel string) (string, error) {
 	binPath, err := binaryPath(dataDir)
