@@ -10,3 +10,4 @@ coverage.out
 dist/
 frontend/package.json.md5
 .dmg
+.worktrees/
