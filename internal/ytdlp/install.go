@@ -24,12 +24,15 @@ import (
 const BridgeVersion = "0.1.0"
 
 const (
-	ytdlpRefreshEvery   = 24 * time.Hour
 	ytdlpFetchTimeout   = 2 * time.Minute
 	ytdlpVersionTimeout = 5 * time.Second
 	githubAPITimeout    = 15 * time.Second
 	retryMaxAttempts    = 3
 )
+
+// ytdlpRefreshEvery is the RefreshDaily tick interval. Declared as var so
+// tests can shorten it without waiting 24h between ticks.
+var ytdlpRefreshEvery = 24 * time.Hour
 
 // ytdlpStableAPI and ytdlpNightlyAPI are the GitHub Releases endpoints for the
 // two channels. Declared as vars so tests can redirect them at an

@@ -444,3 +444,54 @@ func TestRefreshDaily_OffChannelSkipsImmediateCheck(t *testing.T) {
 		t.Errorf("off channel should not call GitHub; got %d hits", got)
 	}
 }
+
+// TestRefreshDaily_TickerHonorsOffAndLiveChannelSwitch shortens the tick
+// interval so the ticker branch actually runs in test time, and flips the
+// channel from "off" to "stable" mid-run to assert RefreshDaily reads
+// channelFn on every tick instead of capturing at start.
+func TestRefreshDaily_TickerHonorsOffAndLiveChannelSwitch(t *testing.T) {
+	prev := ytdlpRefreshEvery
+	ytdlpRefreshEvery = 10 * time.Millisecond
+	t.Cleanup(func() { ytdlpRefreshEvery = prev })
+
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tag_name":"x"}`))
+	}))
+	t.Cleanup(srv.Close)
+	redirectLatestAPI(t, srv.URL)
+
+	var channel atomic.Pointer[string]
+	off := "off"
+	channel.Store(&off)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		RefreshDaily(ctx, t.TempDir(), func() string { return *channel.Load() })
+		close(done)
+	}()
+	// Let several ticker iterations pass with the channel pinned at "off".
+	time.Sleep(100 * time.Millisecond)
+	if got := hits.Load(); got != 0 {
+		t.Fatalf("off channel ticker hit GitHub %d times, want 0", got)
+	}
+	// Flip live to "stable" and confirm the next tick hits the server.
+	stable := "stable"
+	channel.Store(&stable)
+	deadline := time.Now().Add(2 * time.Second)
+	for hits.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if hits.Load() == 0 {
+		t.Fatal("stable channel ticker never hit GitHub after live switch")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("RefreshDaily did not exit within 2s of cancel")
+	}
+}
