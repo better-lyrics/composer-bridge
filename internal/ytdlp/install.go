@@ -353,6 +353,19 @@ func RefreshDaily(ctx context.Context, dataDir string, channelFn func() string) 
 	}
 }
 
+// RefreshOnce performs a single upgrade check against the channel's GitHub
+// release and re-downloads the binary if a newer version is available. Same
+// semantics as one RefreshDaily tick. Exposed so callers outside the package
+// (notably SaveConfig handlers) can kick a refresh without waiting for the
+// next 24h tick. Returns nothing because refreshIfNewer logs warns rather
+// than bubbling errors, consistent with the daily-poll pattern.
+func RefreshOnce(ctx context.Context, dataDir, channel string) {
+	if channel == "off" {
+		return
+	}
+	refreshIfNewer(ctx, dataDir, channel)
+}
+
 // refreshIfNewer fetches the latest GitHub release and redownloads when the
 // local binary is stale or unrunnable. If Version returns "unknown", the
 // existing binary is unrunnable; redownload to recover rather than skipping.

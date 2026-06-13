@@ -445,6 +445,52 @@ func TestRefreshDaily_OffChannelSkipsImmediateCheck(t *testing.T) {
 	}
 }
 
+// TestRefreshOnce_FetchesAndUpdatesBinary asserts the exported one-shot
+// helper exercises the same code path as a RefreshDaily tick: it fetches the
+// channel's latest release and re-downloads the binary when the on-disk
+// version differs. SaveConfig wires this into channel changes so a Settings
+// flip propagates without waiting for the next 24h tick.
+func TestRefreshOnce_FetchesAndUpdatesBinary(t *testing.T) {
+	shortenRetryBackoff(t)
+	dataDir := t.TempDir()
+	name, err := ytdlpAssetName()
+	if err != nil {
+		t.Skipf("no asset for platform: %v", err)
+	}
+	binPath := filepath.Join(dataDir, name)
+	if err := os.WriteFile(binPath, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const tagName = "2025.99.99"
+	const newBinaryContent = "NEW_AFTER_REFRESH_ONCE"
+	var apiURL string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/asset", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(newBinaryContent))
+	})
+	mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(ghRelease{
+			TagName: tagName,
+			Assets:  []ghAsset{{Name: name, DownloadURL: apiURL + "/asset"}},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	apiURL = srv.URL
+	redirectLatestAPI(t, srv.URL+"/releases/latest")
+
+	RefreshOnce(context.Background(), dataDir, "stable")
+
+	got, err := os.ReadFile(binPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != newBinaryContent {
+		t.Errorf("binary not updated: got %q, want %q", got, newBinaryContent)
+	}
+}
+
 // TestRefreshDaily_TickerHonorsOffAndLiveChannelSwitch shortens the tick
 // interval so the ticker branch actually runs in test time, and flips the
 // channel from "off" to "stable" mid-run to assert RefreshDaily reads

@@ -67,9 +67,10 @@ type App struct {
 	logPath       string
 	version       string
 	ctx           context.Context
-	hideWindow    func(context.Context)
-	showWindow    func(context.Context)
-	ytdlpVersion  func() string
+	hideWindow      func(context.Context)
+	showWindow      func(context.Context)
+	ytdlpVersion    func() string
+	ytdlpRefresher  func()
 	state         *bridgestate.Holder
 	bridge        *bridge.Bridge
 	statusEmitter func(ctx context.Context, name string, data any)
@@ -436,6 +437,7 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	// toggle that happened while the form was open.
 	a.mu.RLock()
 	cfg.ServerEnabled = a.cfg.ServerEnabled
+	prevChannel := a.cfg.YtdlpChannel
 	a.mu.RUnlock()
 	if err := config.Save(a.cfgPath, cfg); err != nil {
 		return err
@@ -444,7 +446,11 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	prevOpenAtLogin := a.cfg.OpenAtLogin
 	a.cfg = cfg
 	a.downloadDir = resolveDownloadDir(cfg.DownloadDir)
+	refresher := a.ytdlpRefresher
 	a.mu.Unlock()
+	if cfg.YtdlpChannel != prevChannel && refresher != nil {
+		go refresher()
+	}
 	if cfg.OpenAtLogin != prevOpenAtLogin {
 		if err := autostart.SetEnabled(cfg.OpenAtLogin, currentExecPath()); err != nil {
 			return fmt.Errorf("apply open-at-login: %w", err)
@@ -514,6 +520,15 @@ func (a *App) BridgeVersion() string {
 func (a *App) SetYtdlpVersionFn(fn func() string) {
 	a.mu.Lock()
 	a.ytdlpVersion = fn
+	a.mu.Unlock()
+}
+
+// SetYtdlpRefresher installs a callback invoked when the user changes the
+// yt-dlp channel via SaveConfig. main.go wires this to ytdlp.RefreshOnce so
+// channel switches take effect without waiting for the next 24h tick.
+func (a *App) SetYtdlpRefresher(fn func()) {
+	a.mu.Lock()
+	a.ytdlpRefresher = fn
 	a.mu.Unlock()
 }
 

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1123,6 +1124,44 @@ func TestRepairBrokenAudio_CancelledContextStopsLoop(t *testing.T) {
 	// hanging when ctx is dead". Hitting this point at all proves the loop
 	// honored cancellation.
 }
+// TestSaveConfig_ChannelChangeKicksRefresher asserts that flipping
+// cfg.YtdlpChannel via SaveConfig fires the installed refresher exactly once,
+// and that a SaveConfig with the same channel does not fire it. Without this,
+// a user switching Stable to Nightly in Settings would wait up to 24h for the
+// next RefreshDaily tick to act on the new channel.
+func TestSaveConfig_ChannelChangeKicksRefresher(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	a.mu.Lock()
+	a.cfg.YtdlpChannel = "stable"
+	a.mu.Unlock()
+
+	var calls atomic.Int32
+	a.SetYtdlpRefresher(func() { calls.Add(1) })
+
+	// SaveConfig with the same channel: refresher must NOT fire.
+	cfg := a.GetConfig()
+	if err := a.SaveConfig(cfg); err != nil {
+		t.Fatalf("SaveConfig (unchanged): %v", err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if got := calls.Load(); got != 0 {
+		t.Errorf("unchanged channel kicked refresher; got %d calls, want 0", got)
+	}
+
+	// SaveConfig with a different channel: refresher MUST fire exactly once.
+	cfg.YtdlpChannel = "nightly"
+	if err := a.SaveConfig(cfg); err != nil {
+		t.Fatalf("SaveConfig (changed): %v", err)
+	}
+	deadline := time.Now().Add(1 * time.Second)
+	for calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("channel change refresher count: got %d, want 1", got)
+	}
+}
+
 // -- ForceYtdlpUpdate ---------------------------------------------------------
 
 func TestForceYtdlpUpdate_BinaryOverrideReturnsError(t *testing.T) {

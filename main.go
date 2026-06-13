@@ -183,6 +183,13 @@ func main() {
 	})
 
 	a.SetYtdlpVersionFn(getYtdlpVersion)
+	a.SetYtdlpRefresher(func() {
+		cfg := a.GetConfig()
+		if cfg.YtdlpBinaryPath != "" {
+			return
+		}
+		ytdlp.RefreshOnce(bgCtx, dataDir, cfg.YtdlpChannel)
+	})
 	a.SetBridgeState(holder)
 	a.SetBridge(br)
 	a.SetStatusEmitter(func(ctx context.Context, name string, data any) {
