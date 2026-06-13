@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -140,6 +141,17 @@ type retryableHTTPError struct{ status int }
 
 func (e *retryableHTTPError) Error() string { return fmt.Sprintf("http %d", e.status) }
 
+// githubRateLimitError builds a friendlier error message for GitHub API
+// rate-limit responses. resetUnix is the value of the X-RateLimit-Reset
+// header (Unix seconds). Returned errors are non-retryable: the rate limit
+// resets at a known time and burning retries before then is wasted.
+func githubRateLimitError(resetUnix string) error {
+	if sec, err := strconv.ParseInt(resetUnix, 10, 64); err == nil {
+		return fmt.Errorf("GitHub API rate limit hit; resets at %s", time.Unix(sec, 0).Format(time.Kitchen))
+	}
+	return errors.New("GitHub API rate limit hit; try again in an hour")
+}
+
 // isRetryable decides whether an error from an HTTP attempt warrants another
 // try. Caller-side cancellation (context.Canceled, e.g. app shutdown) is never
 // retryable so it propagates immediately. Per-request timeouts
@@ -213,6 +225,9 @@ func fetchLatestRelease(ctx context.Context, apiURL string) (*ghRelease, error) 
 			return err
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0" {
+			return githubRateLimitError(resp.Header.Get("X-RateLimit-Reset"))
+		}
 		if resp.StatusCode != http.StatusOK {
 			return &retryableHTTPError{status: resp.StatusCode}
 		}

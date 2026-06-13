@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -222,6 +224,57 @@ func TestFetchLatestRelease_DoesNotRetryOn404(t *testing.T) {
 	}
 	if got := calls.Load(); got != 1 {
 		t.Errorf("request count: got %d, want 1 (no retry on 4xx)", got)
+	}
+}
+
+// TestFetchLatestRelease_RateLimitFriendlyError verifies that a GitHub
+// rate-limit 403 (identified by X-RateLimit-Remaining: 0) surfaces as a
+// human-readable error mentioning "rate limit" and is NOT retried, since the
+// limit only resets at a known future time.
+func TestFetchLatestRelease_RateLimitFriendlyError(t *testing.T) {
+	shortenRetryBackoff(t)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10))
+		http.Error(w, "rate limit", http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := fetchLatestRelease(context.Background(), srv.URL)
+	if err == nil {
+		t.Fatal("expected error on rate-limit response")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "rate limit") {
+		t.Errorf("error should mention rate limit; got %q", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("rate-limit must not retry; got %d calls, want 1", got)
+	}
+}
+
+// TestFetchLatestRelease_NonRateLimit403StaysGenericError pins that a plain
+// 403 without the rate-limit header keeps the existing generic error shape
+// and stays non-retryable (4xx terminal).
+func TestFetchLatestRelease_NonRateLimit403StaysGenericError(t *testing.T) {
+	shortenRetryBackoff(t)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := fetchLatestRelease(context.Background(), srv.URL)
+	if err == nil {
+		t.Fatal("expected error on 403")
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "rate limit") {
+		t.Errorf("non-rate-limit 403 should not mention rate limit; got %q", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("403 must not retry; got %d calls, want 1", got)
 	}
 }
 
