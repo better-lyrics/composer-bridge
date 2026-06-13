@@ -77,7 +77,7 @@ func main() {
 
 	installGoroutineDumpSignal(dataDir)
 
-	ytdlpPath, err := bootstrapYtdlp(context.Background(), dataDir)
+	ytdlpPath, err := bootstrapYtdlp(context.Background(), dataDir, cfg.YtdlpChannel, cfg.YtdlpBinaryPath)
 	if err != nil {
 		fatal("ensure yt-dlp: %v", err)
 	}
@@ -170,7 +170,10 @@ func main() {
 
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
-	scheduleYtdlpRefresh(bgCtx, dataDir)
+	scheduleYtdlpRefresh(bgCtx, dataDir,
+		func() string { return a.GetConfig().YtdlpChannel },
+		func() string { return a.GetConfig().YtdlpBinaryPath },
+	)
 	go updater.PollDaily(bgCtx, manifestURL, Version, func(info updater.UpdateInfo) {
 		slog.Info("bridge update available", "version", info.Latest, "current", info.Current)
 		a.SetLatestUpdate(&info)

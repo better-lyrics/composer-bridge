@@ -13,14 +13,25 @@ import (
 // refresh. Skipped under the `bindings` build tag (used by wails build's
 // "Generating bindings" phase) because that phase runs main() just to
 // introspect bound types and shouldn't hit GitHub's release API.
-func bootstrapYtdlp(ctx context.Context, dataDir string) (string, error) {
-	// TODO(phase-b): read channel + binary-path override from cfg.
-	return ytdlp.Ensure(ctx, dataDir, "stable")
+func bootstrapYtdlp(ctx context.Context, dataDir, channel, override string) (string, error) {
+	// When the user supplies an explicit binary path we trust it verbatim:
+	// no Ensure call, no download, no stat check. They own the lifecycle.
+	if override != "" {
+		return override, nil
+	}
+	return ytdlp.Ensure(ctx, dataDir, channel)
 }
 
-func scheduleYtdlpRefresh(ctx context.Context, dataDir string) {
-	// TODO(phase-b): replace the constant callback with cfg.YtdlpChannel.
-	go ytdlp.RefreshDaily(ctx, dataDir, func() string { return "stable" })
+// scheduleYtdlpRefresh starts the daily upgrade poll. The override is read
+// once at goroutine entry: if the user clears it mid-session the refresh
+// stays disabled until restart (or until SaveConfig kicks a new poll).
+func scheduleYtdlpRefresh(ctx context.Context, dataDir string, channelFn, overrideFn func() string) {
+	go func() {
+		if overrideFn() != "" {
+			return
+		}
+		ytdlp.RefreshDaily(ctx, dataDir, channelFn)
+	}()
 }
 
 // bootstrapDeno downloads deno on first run and registers <dataDir>/bin with
