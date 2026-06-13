@@ -246,11 +246,47 @@ func TestFetchLatestRelease_RateLimitFriendlyError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error on rate-limit response")
 	}
-	if !strings.Contains(strings.ToLower(err.Error()), "rate limit") {
-		t.Errorf("error should mention rate limit; got %q", err)
+	if !strings.Contains(err.Error(), "resets in") {
+		t.Errorf("error should report relative reset duration; got %q", err)
 	}
 	if got := calls.Load(); got != 1 {
 		t.Errorf("rate-limit must not retry; got %d calls, want 1", got)
+	}
+}
+
+// TestFetchLatestRelease_RateLimitFallbackWhenResetHeaderUnusable pins the
+// fallback path: an absent or garbage X-RateLimit-Reset header still produces
+// a rate-limit error (so the user sees actionable text) but uses the generic
+// "try again in an hour" copy instead of inventing a wall-clock time.
+func TestFetchLatestRelease_RateLimitFallbackWhenResetHeaderUnusable(t *testing.T) {
+	shortenRetryBackoff(t)
+	cases := []struct {
+		name  string
+		reset string
+	}{
+		{"missing header", ""},
+		{"unparseable", "not-a-number"},
+		{"in the past", strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)},
+		{"far future", strconv.FormatInt(time.Now().Add(48*time.Hour).Unix(), 10)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("X-RateLimit-Remaining", "0")
+				if c.reset != "" {
+					w.Header().Set("X-RateLimit-Reset", c.reset)
+				}
+				http.Error(w, "rate limit", http.StatusForbidden)
+			}))
+			t.Cleanup(srv.Close)
+			_, err := fetchLatestRelease(context.Background(), srv.URL)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), "try again in an hour") {
+				t.Errorf("fallback path should suggest retry timeframe; got %q", err)
+			}
+		})
 	}
 }
 

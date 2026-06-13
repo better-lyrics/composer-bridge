@@ -143,11 +143,18 @@ func (e *retryableHTTPError) Error() string { return fmt.Sprintf("http %d", e.st
 
 // githubRateLimitError builds a friendlier error message for GitHub API
 // rate-limit responses. resetUnix is the value of the X-RateLimit-Reset
-// header (Unix seconds). Returned errors are non-retryable: the rate limit
-// resets at a known time and burning retries before then is wasted.
+// header (Unix seconds). The message reports the remaining time as a
+// duration rather than a wall-clock so a stale or far-future reset can't
+// render as a plausible-looking current time. Falls back to a generic
+// "try again in an hour" string when the header is missing, unparseable,
+// in the past, or implausibly far in the future. Non-retryable because
+// burning retries before reset is wasted.
 func githubRateLimitError(resetUnix string) error {
 	if sec, err := strconv.ParseInt(resetUnix, 10, 64); err == nil {
-		return fmt.Errorf("GitHub API rate limit hit; resets at %s", time.Unix(sec, 0).Format(time.Kitchen))
+		delta := time.Until(time.Unix(sec, 0))
+		if delta > 0 && delta < 24*time.Hour {
+			return fmt.Errorf("GitHub API rate limit hit; resets in %s", delta.Round(time.Minute))
+		}
 	}
 	return errors.New("GitHub API rate limit hit; try again in an hour")
 }
