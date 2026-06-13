@@ -12,3 +12,5 @@ import "context"
 func bootstrapYtdlp(_ string) (string, error) { return "", nil }
 
 func scheduleYtdlpRefresh(_ context.Context, _ string) {}
+
+func bootstrapDeno(_ string) {}

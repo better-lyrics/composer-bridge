@@ -68,6 +68,7 @@ func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath, c
 	}
 	cmd := exec.CommandContext(ctx, ytdlpPath, args...)
 	cmd.WaitDelay = killWaitDelay
+	cmd.Env = execEnv()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

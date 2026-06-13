@@ -275,6 +275,7 @@ func Version(ytdlpPath string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), ytdlpVersionTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, ytdlpPath, "--version")
+	cmd.Env = execEnv()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	start := time.Now()

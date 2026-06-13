@@ -129,6 +129,7 @@ func VerifyCookies(ctx context.Context, ytdlpPath, cookiesPath string) (VerifyRe
 	}
 	cmd := exec.CommandContext(ctx, ytdlpPath, args...)
 	cmd.WaitDelay = killWaitDelay
+	cmd.Env = execEnv()
 	cmd.Stdout = io.Discard
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {

@@ -38,7 +38,7 @@ var assets embed.FS
 // `-ldflags "-X main.Version=$VERSION"` injection actually takes effect at
 // link time. Constants are inlined by the compiler and cannot be overridden,
 // which is why this stayed in sync with tags only through manual edits.
-var Version = "1.4.7"
+var Version = "1.4.9"
 
 func main() {
 	// SingleInstanceLock handshake: when ApplyAndRelaunch spawns us with the
@@ -76,6 +76,7 @@ func main() {
 	if err != nil {
 		fatal("ensure yt-dlp: %v", err)
 	}
+	bootstrapDeno(dataDir)
 
 	lib, err := library.Open(filepath.Join(dataDir, "library.db"))
 	if err != nil {
