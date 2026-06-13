@@ -144,6 +144,60 @@ func (a *App) Startup(ctx context.Context) {
 		a.unsubStatus = unsub
 		a.mu.Unlock()
 	}
+	go a.repairBrokenAudio(ctx)
+}
+
+// repairBrokenAudio walks the library, finds tracks whose cached audio is the
+// old MPEG-TS-over-HLS file the pre-1.4.11 yt-dlp selector produced, and
+// re-downloads each one in place using the fixed selector. yt-dlp writes the
+// new bytes via its .part staging file then renames over the original path, so
+// readers (the cache-hit handler) never see a half-written file: they either
+// see the old (bad) bytes or the new (good) bytes. The serve path detects bad
+// bytes and falls through to streaming, so plays during the repair window
+// still work; once repair completes the cache-hit path serves the fresh copy.
+//
+// Runs serially with one yt-dlp in flight at a time to avoid hammering the
+// network or YouTube's rate limit. Errors are logged and skipped; the loop
+// keeps going so one broken video doesn't block the rest.
+func (a *App) repairBrokenAudio(ctx context.Context) {
+	tracks, err := a.library.ListTracks()
+	if err != nil {
+		slog.Warn("repair: list tracks failed", "err", err)
+		return
+	}
+	a.mu.RLock()
+	ytdlpPath := a.ytdlpPath
+	format := a.cfg.AudioFormat
+	a.mu.RUnlock()
+	if format == "" {
+		format = "opus"
+	}
+	repaired := 0
+	for _, t := range tracks {
+		if ctx.Err() != nil {
+			return
+		}
+		if t.AudioPath == "" {
+			continue
+		}
+		if !ytdlp.IsMpegTSFile(t.AudioPath) {
+			continue
+		}
+		slog.Info("repair: rewriting unplayable cached audio", "videoID", t.VideoID, "path", t.AudioPath)
+		size, err := ytdlp.DownloadToFile(ctx, ytdlpPath, t.VideoID, format, t.AudioPath, a.CookiesPath(), a.PreferPremiumAudio())
+		if err != nil {
+			slog.Warn("repair: download failed", "videoID", t.VideoID, "err", err)
+			continue
+		}
+		if err := a.library.MarkAudioDownloaded(t.VideoID, t.AudioPath, size); err != nil {
+			slog.Warn("repair: mark downloaded failed", "videoID", t.VideoID, "err", err)
+			continue
+		}
+		repaired++
+	}
+	if repaired > 0 {
+		slog.Info("repair: finished", "repaired", repaired)
+	}
 }
 
 // MarkQuitting flips an atomic flag the tray's Quit menu sets before calling
