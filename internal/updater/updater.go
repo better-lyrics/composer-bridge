@@ -76,10 +76,7 @@ func isRetryable(err error) bool {
 		return httpErr.status >= 500 && httpErr.status <= 599
 	}
 	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		return true
-	}
-	return false
+	return errors.As(err, &opErr)
 }
 
 // withRetry runs op up to retryMaxAttempts times with exponential backoff plus
@@ -88,7 +85,7 @@ func isRetryable(err error) bool {
 // pending retry.
 func withRetry(ctx context.Context, op func() error) error {
 	var err error
-	for attempt := 0; attempt < retryMaxAttempts; attempt++ {
+	for attempt := range retryMaxAttempts {
 		err = op()
 		if err == nil {
 			return nil
