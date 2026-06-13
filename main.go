@@ -7,8 +7,11 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime/pprof"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/better-lyrics/composer-bridge/internal/activity"
@@ -71,6 +74,8 @@ func main() {
 		defer logFile.Close()
 		slog.SetDefault(slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{Level: parseLogLevel(cfg.LogLevel)})))
 	}
+
+	installGoroutineDumpSignal(dataDir)
 
 	ytdlpPath, err := bootstrapYtdlp(dataDir)
 	if err != nil {
@@ -291,6 +296,32 @@ func resolveDataDir() string {
 func fatal(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 	os.Exit(1)
+}
+
+// installGoroutineDumpSignal wires SIGQUIT (kill -QUIT <pid>) to write a full
+// goroutine stack dump into dataDir/goroutines-<unix>.dump. The Go default
+// handler for SIGQUIT prints stacks to stderr then exits; for a launchd-managed
+// bridge stderr goes nowhere and exit kills the app. Routing through a file in
+// dataDir survives both, so a wedged handler can be diagnosed without
+// restarting the bridge.
+func installGoroutineDumpSignal(dataDir string) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGQUIT)
+	go func() {
+		for range ch {
+			path := filepath.Join(dataDir, fmt.Sprintf("goroutines-%d.dump", time.Now().Unix()))
+			f, err := os.Create(path)
+			if err != nil {
+				slog.Warn("goroutine dump open failed", "path", path, "err", err)
+				continue
+			}
+			if err := pprof.Lookup("goroutine").WriteTo(f, 2); err != nil {
+				slog.Warn("goroutine dump write failed", "path", path, "err", err)
+			}
+			f.Close()
+			slog.Info("wrote goroutine dump", "path", path)
+		}
+	}()
 }
 
 func parseLogLevel(name string) slog.Level {

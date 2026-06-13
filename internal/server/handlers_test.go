@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/better-lyrics/composer-bridge/internal/activity"
 	"github.com/better-lyrics/composer-bridge/internal/bridgestate"
@@ -1170,4 +1171,122 @@ func TestAudio_NilHolderIsNoop(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status: got %d, want 200", resp.StatusCode)
 	}
+}
+
+// -- Cache-hit hang regression -------------------------------------------------
+
+// Regression: production reports of GET /audio/{id} hanging indefinitely on
+// cache-hit (track row + audio file both present). The hang manifests with no
+// activity row written, so the wedge is somewhere in Audio -> resolveTrack ->
+// serveCachedAudio before startActivity ever fires. The cache-hit path is
+// pure local I/O (SQLite read with WAL/busy_timeout, file stat, ServeFile),
+// so any handler-side response should land well under a second. Anything
+// taking more than a few seconds is the bug.
+func TestAudio_CacheHit_ConcurrentRequestsRespondUnderDeadline(t *testing.T) {
+	env := newTestEnv(t, "/nonexistent")
+	audioBytes := []byte("cached audio payload")
+	seedDownloadedTrack(t, env, "RgKAFK5djSk", "opus", audioBytes)
+
+	const workers = 16
+	const deadline = 5 * time.Second
+
+	type result struct {
+		status int
+		bodyOK bool
+		took   time.Duration
+		err    error
+	}
+	results := make(chan result, workers)
+
+	client := &http.Client{Timeout: deadline}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			t0 := time.Now()
+			resp, err := client.Get(env.server.URL + "/audio/RgKAFK5djSk")
+			if err != nil {
+				results <- result{err: err, took: time.Since(t0)}
+				return
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			results <- result{
+				status: resp.StatusCode,
+				bodyOK: bytes.Equal(body, audioBytes),
+				took:   time.Since(t0),
+			}
+		}()
+	}
+
+	close(start)
+
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(deadline + time.Second):
+		t.Fatalf("cache-hit handler wedged: %d concurrent requests did not finish within %s", workers, deadline+time.Second)
+	}
+
+	close(results)
+	var seen int
+	for r := range results {
+		seen++
+		if r.err != nil {
+			t.Errorf("request %d failed after %s: %v", seen, r.took, r.err)
+			continue
+		}
+		if r.status != http.StatusOK {
+			t.Errorf("request %d status: got %d, want 200 (took %s)", seen, r.status, r.took)
+		}
+		if !r.bodyOK {
+			t.Errorf("request %d body mismatch (took %s)", seen, r.took)
+		}
+		if r.took >= deadline {
+			t.Errorf("request %d took %s, want < %s (cache-hit should be sub-second)", seen, r.took, deadline)
+		}
+	}
+	if seen != workers {
+		t.Fatalf("got %d results, want %d", seen, workers)
+	}
+}
+
+// -- Debug endpoints -----------------------------------------------------------
+
+func TestDebugGoroutines_ReturnsStackDump(t *testing.T) {
+	env := newTestEnv(t, "/nonexistent")
+
+	resp, err := http.Get(env.server.URL + "/debug/goroutines")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/plain") {
+		t.Errorf("content-type: got %q, want text/plain", got)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if !bytes.Contains(body, []byte("goroutine ")) {
+		t.Errorf("body missing goroutine header; got %d bytes starting with %q", len(body), firstN(body, 80))
+	}
+	if !bytes.Contains(body, []byte("runtime/pprof")) && !bytes.Contains(body, []byte("net/http.")) {
+		t.Errorf("body has no stack frames; got %d bytes", len(body))
+	}
+}
+
+func firstN(b []byte, n int) []byte {
+	if len(b) < n {
+		return b
+	}
+	return b[:n]
 }

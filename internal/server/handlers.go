@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 	"time"
 
@@ -91,7 +92,8 @@ func (h *Handlers) Router() http.Handler {
 	mux.HandleFunc("GET /audio/{id}", h.Audio)
 	mux.HandleFunc("GET /thumb/{id}", h.Thumb)
 	mux.HandleFunc("POST /import", h.Import)
-	for _, p := range []string{"OPTIONS /audio/{id}", "OPTIONS /thumb/{id}", "OPTIONS /import", "OPTIONS /health"} {
+	mux.HandleFunc("GET /debug/goroutines", h.DebugGoroutines)
+	for _, p := range []string{"OPTIONS /audio/{id}", "OPTIONS /thumb/{id}", "OPTIONS /import", "OPTIONS /health", "OPTIONS /debug/goroutines"} {
 		mux.HandleFunc(p, h.preflight)
 	}
 	return mux
@@ -151,12 +153,18 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 // branches, and so a brand-new video gets persisted to the library either way.
 func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	videoID := r.PathValue("id")
+	slog.Debug("audio: enter", "videoID", videoID)
 	if !ytdlp.VideoIDRe.MatchString(videoID) {
 		writeError(w, http.StatusBadRequest, "invalid video id")
 		return
 	}
+	slog.Debug("audio: resolve begin", "videoID", videoID)
 	track := h.resolveTrackForAudio(r.Context(), videoID)
-	if h.serveCachedAudio(w, r, track) {
+	slog.Debug("audio: resolve done", "videoID", videoID, "hasTrack", track != nil)
+	slog.Debug("audio: serveCached begin", "videoID", videoID)
+	served := h.serveCachedAudio(w, r, track)
+	slog.Debug("audio: serveCached done", "videoID", videoID, "served", served)
+	if served {
 		return
 	}
 	format := h.AudioFormat
@@ -230,21 +238,30 @@ func (h *Handlers) writeAudioHeaders(w http.ResponseWriter, contentType string, 
 // shows actual yt-dlp work.
 func (h *Handlers) serveCachedAudio(w http.ResponseWriter, r *http.Request, track *library.Track) bool {
 	if track == nil || track.AudioPath == "" {
+		slog.Debug("serveCached: skip (no track or empty AudioPath)", "hasTrack", track != nil)
 		return false
 	}
+	slog.Debug("serveCached: downloadDir lookup", "videoID", track.VideoID)
 	root := h.downloadDir()
+	slog.Debug("serveCached: downloadDir done", "videoID", track.VideoID, "root", root)
 	if root == "" {
 		return false
 	}
 	if !pathIsUnder(track.AudioPath, root) {
+		slog.Debug("serveCached: path outside root", "videoID", track.VideoID, "audioPath", track.AudioPath, "root", root)
 		return false
 	}
+	slog.Debug("serveCached: stat begin", "videoID", track.VideoID, "path", track.AudioPath)
 	if _, err := os.Stat(track.AudioPath); err != nil {
+		slog.Debug("serveCached: stat miss", "videoID", track.VideoID, "err", err)
 		return false
 	}
+	slog.Debug("serveCached: stat ok", "videoID", track.VideoID)
 	ext := strings.TrimPrefix(filepath.Ext(track.AudioPath), ".")
 	h.writeAudioHeaders(w, audioContentType(ext), track)
+	slog.Debug("serveCached: ServeFile begin", "videoID", track.VideoID)
 	http.ServeFile(w, r, track.AudioPath)
+	slog.Debug("serveCached: ServeFile done", "videoID", track.VideoID)
 	return true
 }
 
@@ -252,7 +269,10 @@ func (h *Handlers) serveCachedAudio(w http.ResponseWriter, r *http.Request, trac
 // inserting metadata via yt-dlp on a cache miss. Best-effort: returns nil on
 // any failure so the audio request can still proceed with no title headers.
 func (h *Handlers) resolveTrackForAudio(ctx context.Context, videoID string) *library.Track {
-	if existing, err := h.Library.GetTrack(videoID); err == nil && existing != nil {
+	slog.Debug("resolve: GetTrack begin", "videoID", videoID)
+	existing, err := h.Library.GetTrack(videoID)
+	slog.Debug("resolve: GetTrack done", "videoID", videoID, "found", existing != nil, "err", err)
+	if err == nil && existing != nil {
 		return existing
 	}
 	infoCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -369,6 +389,20 @@ func pathIsUnder(path, root string) bool {
 
 func (h *Handlers) preflight(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// DebugGoroutines writes a full goroutine stack dump (debug=2, the same form
+// SIGQUIT produces) so a wedged handler can be diagnosed without restarting
+// the bridge. The mux is localhost-bound by the bridge listener; CORS still
+// gates browser callers via the configured AllowedOrigins. Exposed because
+// the runtime/pprof handler in net/http/pprof requires either a separate
+// listener or unguarded mounting and we want the existing CORS guard.
+func (h *Handlers) DebugGoroutines(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := pprof.Lookup("goroutine").WriteTo(w, 2); err != nil {
+		slog.Warn("goroutine dump failed", "err", err)
+	}
 }
 
 func (h *Handlers) fetchAndCacheThumb(ctx context.Context, track *library.Track) (string, error) {
