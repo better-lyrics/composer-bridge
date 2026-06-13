@@ -23,17 +23,38 @@ func shortenRetryBackoff(t *testing.T) {
 	t.Cleanup(func() { retryBackoffBase = prev })
 }
 
-// redirectLatestAPI points the package-level ytdlpLatestAPI at url for the
-// duration of the test. Restored via t.Cleanup.
+// redirectLatestAPI points both ytdlpStableAPI and ytdlpNightlyAPI at url for
+// the duration of the test so callers exercising either channel hit the
+// httptest server. Restored via t.Cleanup.
 func redirectLatestAPI(t *testing.T, url string) {
 	t.Helper()
-	prev := ytdlpLatestAPI
-	ytdlpLatestAPI = url
-	t.Cleanup(func() { ytdlpLatestAPI = prev })
+	prevStable, prevNightly := ytdlpStableAPI, ytdlpNightlyAPI
+	ytdlpStableAPI, ytdlpNightlyAPI = url, url
+	t.Cleanup(func() {
+		ytdlpStableAPI, ytdlpNightlyAPI = prevStable, prevNightly
+	})
 }
 
 // NOTE: the GitHub Releases download flow against the real network is not
 // covered here; tests use httptest.Server through the ytdlpLatestAPI seam.
+
+func TestChannelAPIURL(t *testing.T) {
+	cases := []struct {
+		channel string
+		want    string
+	}{
+		{"stable", "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"},
+		{"nightly", "https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest"},
+		{"", "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"},
+		{"off", "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"},
+		{"garbage", "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"},
+	}
+	for _, c := range cases {
+		if got := channelAPIURL(c.channel); got != c.want {
+			t.Errorf("channelAPIURL(%q) = %q, want %q", c.channel, got, c.want)
+		}
+	}
+}
 
 func TestResolveAssetName_Matrix(t *testing.T) {
 	cases := []struct {
@@ -246,7 +267,7 @@ func TestRefreshIfNewer_RedownloadsWhenVersionUnknown(t *testing.T) {
 		t.Logf("Version(fake): %q", got)
 	}
 
-	refreshIfNewer(context.Background(), dataDir)
+	refreshIfNewer(context.Background(), dataDir, "stable")
 
 	if got := assetCalls.Load(); got < 1 {
 		t.Errorf("asset endpoint: got %d hits, want >=1", got)
@@ -284,7 +305,7 @@ func TestRefreshDaily_RunsImmediateCheckOnBoot(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RefreshDaily(ctx, dataDir)
+		RefreshDaily(ctx, dataDir, "stable")
 		close(done)
 	}()
 	// Poll for the immediate check, then cancel so the goroutine exits the

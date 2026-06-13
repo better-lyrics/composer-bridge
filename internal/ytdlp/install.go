@@ -31,9 +31,20 @@ const (
 	retryMaxAttempts    = 3
 )
 
-// ytdlpLatestAPI is the GitHub Releases endpoint. Declared as var so tests can
-// redirect it at an httptest.Server.URL via t.Cleanup.
-var ytdlpLatestAPI = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
+// ytdlpStableAPI and ytdlpNightlyAPI are the GitHub Releases endpoints for the
+// two channels. Declared as vars so tests can redirect them at an
+// httptest.Server.URL via t.Cleanup.
+var (
+	ytdlpStableAPI  = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
+	ytdlpNightlyAPI = "https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest"
+)
+
+func channelAPIURL(channel string) string {
+	if channel == "nightly" {
+		return ytdlpNightlyAPI
+	}
+	return ytdlpStableAPI
+}
 
 // retryBackoffBase is the first-attempt backoff before exponential growth.
 // Declared as var so tests can shrink it to keep the suite fast.
@@ -70,7 +81,7 @@ func binaryPath(dataDir string) (string, error) {
 }
 
 // Ensure returns the path to a working yt-dlp in dataDir, downloading on first run.
-func Ensure(dataDir string) (string, error) {
+func Ensure(dataDir, channel string) (string, error) {
 	binPath, err := binaryPath(dataDir)
 	if err != nil {
 		return "", err
@@ -79,7 +90,7 @@ func Ensure(dataDir string) (string, error) {
 		return binPath, nil
 	}
 	slog.Info("yt-dlp not found, downloading", "path", binPath)
-	if err := downloadLatest(context.Background(), binPath); err != nil {
+	if err := downloadLatest(context.Background(), binPath, channel); err != nil {
 		return "", fmt.Errorf("download yt-dlp: %w", err)
 	}
 	return binPath, nil
@@ -196,12 +207,12 @@ func downloadAsset(ctx context.Context, assetURL, binPath string) error {
 	})
 }
 
-func downloadLatest(ctx context.Context, binPath string) error {
+func downloadLatest(ctx context.Context, binPath, channel string) error {
 	assetName, err := ytdlpAssetName()
 	if err != nil {
 		return err
 	}
-	rel, err := fetchLatestRelease(ctx, ytdlpLatestAPI)
+	rel, err := fetchLatestRelease(ctx, channelAPIURL(channel))
 	if err != nil {
 		return err
 	}
@@ -299,8 +310,8 @@ func Version(ytdlpPath string) string {
 // boot-time check matters: with no immediate run, restarts shorter than 24h
 // (typical for a desktop app) would never trigger a refresh and YouTube
 // extractor breakages would linger.
-func RefreshDaily(ctx context.Context, dataDir string) {
-	refreshIfNewer(ctx, dataDir)
+func RefreshDaily(ctx context.Context, dataDir, channel string) {
+	refreshIfNewer(ctx, dataDir, channel)
 	tick := time.NewTicker(ytdlpRefreshEvery)
 	defer tick.Stop()
 	for {
@@ -308,7 +319,7 @@ func RefreshDaily(ctx context.Context, dataDir string) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			refreshIfNewer(ctx, dataDir)
+			refreshIfNewer(ctx, dataDir, channel)
 		}
 	}
 }
@@ -316,13 +327,13 @@ func RefreshDaily(ctx context.Context, dataDir string) {
 // refreshIfNewer fetches the latest GitHub release and redownloads when the
 // local binary is stale or unrunnable. If Version returns "unknown", the
 // existing binary is unrunnable; redownload to recover rather than skipping.
-func refreshIfNewer(ctx context.Context, dataDir string) {
+func refreshIfNewer(ctx context.Context, dataDir, channel string) {
 	binPath, err := binaryPath(dataDir)
 	if err != nil {
 		slog.Warn("yt-dlp daily check: resolve path", "err", err, "dataDir", dataDir)
 		return
 	}
-	rel, err := fetchLatestRelease(ctx, ytdlpLatestAPI)
+	rel, err := fetchLatestRelease(ctx, channelAPIURL(channel))
 	if err != nil {
 		slog.Warn("yt-dlp daily check: fetch release", "err", err, "binPath", binPath, "dataDir", dataDir)
 		return
@@ -332,7 +343,7 @@ func refreshIfNewer(ctx context.Context, dataDir string) {
 		return
 	}
 	slog.Info("yt-dlp upgrade", "from", current, "to", rel.TagName)
-	if err := downloadLatest(ctx, binPath); err != nil {
+	if err := downloadLatest(ctx, binPath, channel); err != nil {
 		assetName, _ := ytdlpAssetName()
 		slog.Warn("yt-dlp upgrade failed", "err", err, "binPath", binPath, "assetName", assetName, "dataDir", dataDir)
 	}

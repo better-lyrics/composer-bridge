@@ -816,7 +816,7 @@ func (a *App) ForceYtdlpUpdate() (string, error) {
 	if prev != "" {
 		_ = os.Remove(prev)
 	}
-	path, err := ytdlp.Ensure(a.dataDir)
+	path, err := ytdlp.Ensure(a.dataDir, "stable")
 	if err != nil {
 		return "", err
 	}

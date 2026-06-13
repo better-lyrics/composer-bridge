@@ -14,11 +14,11 @@ import (
 // "Generating bindings" phase) because that phase runs main() just to
 // introspect bound types and shouldn't hit GitHub's release API.
 func bootstrapYtdlp(dataDir string) (string, error) {
-	return ytdlp.Ensure(dataDir)
+	return ytdlp.Ensure(dataDir, "stable")
 }
 
 func scheduleYtdlpRefresh(ctx context.Context, dataDir string) {
-	go ytdlp.RefreshDaily(ctx, dataDir)
+	go ytdlp.RefreshDaily(ctx, dataDir, "stable")
 }
 
 // bootstrapDeno downloads deno on first run and registers <dataDir>/bin with
