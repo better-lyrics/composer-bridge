@@ -27,7 +27,7 @@ func bootstrapYtdlp(ctx context.Context, dataDir, channel, override string) (str
 // tick so a mid-session override flip stops the next poll without needing
 // a restart. onUpgrade is forwarded so every successful tick-driven
 // upgrade also refreshes main.go's cached version string.
-func scheduleYtdlpRefresh(ctx context.Context, dataDir string, channelFn, overrideFn func() string, onUpgrade func()) {
+func scheduleYtdlpRefresh(ctx context.Context, dataDir string, channelFn, overrideFn func() string, onUpgrade func(string)) {
 	go ytdlp.RefreshDaily(ctx, dataDir, channelFn, overrideFn, onUpgrade)
 }
 

@@ -11,6 +11,6 @@ import "context"
 // wails v2.10.1 pkg/commands/bindings/bindings.go:66-90.
 func bootstrapYtdlp(_ context.Context, _, _, _ string) (string, error) { return "", nil }
 
-func scheduleYtdlpRefresh(_ context.Context, _ string, _, _ func() string, _ func()) {}
+func scheduleYtdlpRefresh(_ context.Context, _ string, _, _ func() string, _ func(string)) {}
 
 func bootstrapDeno(_ string) {}

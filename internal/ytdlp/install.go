@@ -90,9 +90,10 @@ func binaryPath(dataDir string) (string, error) {
 // bypassing Ensure's existence check. On failure the prior binary is preserved
 // because installBinary uses atomic tmp+rename: the on-disk file is only
 // replaced after a complete successful download. onUpgrade fires after a
-// successful download so callers can refresh cached state (e.g. the version
-// string main.go serves to /health); nil is allowed.
-func ForceUpdate(ctx context.Context, dataDir, channel string, onUpgrade func()) (string, error) {
+// successful download with the path that was just installed so callers can
+// refresh cached state (e.g. the version string main.go serves to /health)
+// against the right binary; nil is allowed.
+func ForceUpdate(ctx context.Context, dataDir, channel string, onUpgrade func(string)) (string, error) {
 	binPath, err := binaryPath(dataDir)
 	if err != nil {
 		return "", err
@@ -101,7 +102,7 @@ func ForceUpdate(ctx context.Context, dataDir, channel string, onUpgrade func())
 		return "", fmt.Errorf("download yt-dlp: %w", err)
 	}
 	if onUpgrade != nil {
-		onUpgrade()
+		onUpgrade(binPath)
 	}
 	return binPath, nil
 }
@@ -373,9 +374,9 @@ func Version(ytdlpPath string) string {
 // matters: with no immediate run, restarts shorter than 24h (typical for a
 // desktop app) would never trigger a refresh and YouTube extractor
 // breakages would linger. onUpgrade fires after every successful download
-// so callers can refresh any cached version string they hold; nil is
-// allowed.
-func RefreshDaily(ctx context.Context, dataDir string, channelFn, overrideFn func() string, onUpgrade func()) {
+// with the path that was just installed, so callers can refresh any cached
+// version string against the right binary; nil is allowed.
+func RefreshDaily(ctx context.Context, dataDir string, channelFn, overrideFn func() string, onUpgrade func(string)) {
 	if channelFn == nil {
 		channelFn = func() string { return "stable" }
 	}
@@ -409,9 +410,10 @@ func RefreshDaily(ctx context.Context, dataDir string, channelFn, overrideFn fun
 // (notably SaveConfig handlers) can kick a refresh without waiting for the
 // next 24h tick. Returns nothing because refreshIfNewer logs warns rather
 // than bubbling errors, consistent with the daily-poll pattern. onUpgrade
-// fires after a successful download so the caller can refresh any cached
-// version string; nil is allowed.
-func RefreshOnce(ctx context.Context, dataDir, channel string, onUpgrade func()) {
+// fires after a successful download with the path that was just installed
+// so the caller can refresh any cached version string against the right
+// binary; nil is allowed.
+func RefreshOnce(ctx context.Context, dataDir, channel string, onUpgrade func(string)) {
 	if channel == "off" {
 		return
 	}
@@ -421,9 +423,10 @@ func RefreshOnce(ctx context.Context, dataDir, channel string, onUpgrade func())
 // refreshIfNewer fetches the latest GitHub release and redownloads when the
 // local binary is stale or unrunnable. If Version returns "unknown", the
 // existing binary is unrunnable; redownload to recover rather than skipping.
-// onUpgrade fires once after a successful download so callers can refresh
-// any cached version string; nil skips the notification.
-func refreshIfNewer(ctx context.Context, dataDir, channel string, onUpgrade func()) {
+// onUpgrade fires once after a successful download with the installed path
+// so callers can refresh any cached version string against the right
+// binary; nil skips the notification.
+func refreshIfNewer(ctx context.Context, dataDir, channel string, onUpgrade func(string)) {
 	binPath, err := binaryPath(dataDir)
 	if err != nil {
 		slog.Warn("yt-dlp daily check: resolve path", "err", err, "dataDir", dataDir)
@@ -445,6 +448,6 @@ func refreshIfNewer(ctx context.Context, dataDir, channel string, onUpgrade func
 		return
 	}
 	if onUpgrade != nil {
-		onUpgrade()
+		onUpgrade(binPath)
 	}
 }

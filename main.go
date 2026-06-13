@@ -96,15 +96,18 @@ func main() {
 	// Cache the yt-dlp version once at startup instead of execing the binary
 	// on every /health and every Settings poll. The initial probe runs in a
 	// goroutine so a slow / hanging exec doesn't block the HTTP server from
-	// binding.
+	// binding. The closure takes the path as an argument so daily/once/force
+	// upgrades can refresh against the binary they just installed rather than
+	// the boot-time path, which would be stale if the user had a binary-path
+	// override set at boot.
 	var ytdlpVersionCache atomic.Pointer[string]
 	unknown := "unknown"
 	ytdlpVersionCache.Store(&unknown)
-	refreshYtdlpVersion := func() {
-		v := ytdlp.Version(ytdlpPath)
+	refreshYtdlpVersion := func(path string) {
+		v := ytdlp.Version(path)
 		ytdlpVersionCache.Store(&v)
 	}
-	go refreshYtdlpVersion()
+	go refreshYtdlpVersion(ytdlpPath)
 	getYtdlpVersion := func() string { return *ytdlpVersionCache.Load() }
 
 	holder := bridgestate.NewHolder()

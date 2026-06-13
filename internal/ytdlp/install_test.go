@@ -489,10 +489,21 @@ func TestRefreshIfNewer_FiresOnUpgradeAfterDownload(t *testing.T) {
 	}
 
 	var calls atomic.Int32
-	refreshIfNewer(context.Background(), dataDir, "stable", func() { calls.Add(1) })
+	var gotPath atomic.Pointer[string]
+	refreshIfNewer(context.Background(), dataDir, "stable", func(p string) {
+		calls.Add(1)
+		gotPath.Store(&p)
+	})
 
 	if got := calls.Load(); got != 1 {
 		t.Errorf("onUpgrade callback: got %d calls, want 1", got)
+	}
+	if p := gotPath.Load(); p == nil || *p != binPath {
+		var have string
+		if p != nil {
+			have = *p
+		}
+		t.Errorf("onUpgrade path: got %q, want %q", have, binPath)
 	}
 }
 
@@ -516,7 +527,7 @@ func TestForceUpdate_KeepsExistingBinaryOnFailure(t *testing.T) {
 	shortenRetryBackoff(t)
 
 	var onUpgrade atomic.Int32
-	if _, err := ForceUpdate(context.Background(), dataDir, "stable", func() { onUpgrade.Add(1) }); err == nil {
+	if _, err := ForceUpdate(context.Background(), dataDir, "stable", func(string) { onUpgrade.Add(1) }); err == nil {
 		t.Fatal("expected error from forced update against a 500 server")
 	}
 	if got := onUpgrade.Load(); got != 0 {
@@ -568,12 +579,23 @@ func TestForceUpdate_OverwritesOnSuccess(t *testing.T) {
 	redirectLatestAPI(t, srv.URL+"/releases/latest")
 
 	var onUpgrade atomic.Int32
-	gotPath, err := ForceUpdate(context.Background(), dataDir, "stable", func() { onUpgrade.Add(1) })
+	var onUpgradePath atomic.Pointer[string]
+	gotPath, err := ForceUpdate(context.Background(), dataDir, "stable", func(p string) {
+		onUpgrade.Add(1)
+		onUpgradePath.Store(&p)
+	})
 	if err != nil {
 		t.Fatalf("ForceUpdate: %v", err)
 	}
 	if got := onUpgrade.Load(); got != 1 {
 		t.Errorf("onUpgrade fired %d times, want 1", got)
+	}
+	if p := onUpgradePath.Load(); p == nil || *p != binPath {
+		var have string
+		if p != nil {
+			have = *p
+		}
+		t.Errorf("onUpgrade path: got %q, want %q", have, binPath)
 	}
 	if gotPath != binPath {
 		t.Errorf("returned path: got %q, want %q", gotPath, binPath)

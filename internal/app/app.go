@@ -72,7 +72,7 @@ type App struct {
 	showWindow            func(context.Context)
 	ytdlpVersion          func() string
 	ytdlpRefresher        func()
-	ytdlpVersionRefresher func()
+	ytdlpVersionRefresher func(string)
 	state                 *bridgestate.Holder
 	bridge                *bridge.Bridge
 	statusEmitter         func(ctx context.Context, name string, data any)
@@ -540,7 +540,7 @@ func (a *App) SetYtdlpRefresher(fn func()) {
 // same closure into RefreshDaily and RefreshOnce as their onUpgrade hook, so
 // daily-tick and SaveConfig-kick upgrades refresh the cache too without going
 // through this setter.
-func (a *App) SetYtdlpVersionRefresher(fn func()) {
+func (a *App) SetYtdlpVersionRefresher(fn func(string)) {
 	a.mu.Lock()
 	a.ytdlpVersionRefresher = fn
 	a.mu.Unlock()
