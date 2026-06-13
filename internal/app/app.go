@@ -819,7 +819,11 @@ func (a *App) ForceYtdlpUpdate() (string, error) {
 	if override != "" {
 		return "", fmt.Errorf("binary path override is set; manage %q yourself or clear the override", override)
 	}
-	path, err := ytdlp.ForceUpdate(context.Background(), a.dataDir, channel)
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	path, err := ytdlp.ForceUpdate(ctx, a.dataDir, channel)
 	if err != nil {
 		return "", err
 	}
