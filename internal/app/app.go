@@ -845,7 +845,7 @@ func (a *App) ForceYtdlpUpdate() (string, error) {
 	override := a.cfg.YtdlpBinaryPath
 	a.mu.RUnlock()
 	if override != "" {
-		return "", fmt.Errorf("binary path override is set; manage %q yourself or clear the override", override)
+		return "", fmt.Errorf("binary path override is set to %s; force update is disabled. Clear the override in Settings to use auto-updates", override)
 	}
 	ctx := a.ctx
 	if ctx == nil {

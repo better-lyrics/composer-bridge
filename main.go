@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/pprof"
+	"slices"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -51,11 +52,8 @@ func main() {
 	// OnSecondInstanceLaunch (focus a window that is mid-shutdown) and we
 	// silently exit. No OSS project pairs minio/selfupdate with Wails'
 	// SingleInstanceLock so this 500ms is uncharted but empirically generous.
-	for _, arg := range os.Args[1:] {
-		if arg == updater.RelaunchUpdatedFlag {
-			time.Sleep(500 * time.Millisecond)
-			break
-		}
+	if slices.Contains(os.Args[1:], updater.RelaunchUpdatedFlag) {
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	dataDir := resolveDataDir()
