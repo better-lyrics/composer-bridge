@@ -18,7 +18,7 @@ func bootstrapYtdlp(dataDir string) (string, error) {
 }
 
 func scheduleYtdlpRefresh(ctx context.Context, dataDir string) {
-	go ytdlp.RefreshDaily(ctx, dataDir, "stable")
+	go ytdlp.RefreshDaily(ctx, dataDir, func() string { return "stable" })
 }
 
 // bootstrapDeno downloads deno on first run and registers <dataDir>/bin with

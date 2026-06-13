@@ -395,7 +395,7 @@ func TestRefreshDaily_RunsImmediateCheckOnBoot(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RefreshDaily(ctx, dataDir, "stable")
+		RefreshDaily(ctx, dataDir, func() string { return "stable" })
 		close(done)
 	}()
 	// Poll for the immediate check, then cancel so the goroutine exits the
@@ -413,5 +413,34 @@ func TestRefreshDaily_RunsImmediateCheckOnBoot(t *testing.T) {
 
 	if got := calls.Load(); got < 1 {
 		t.Errorf("release endpoint hits: got %d, want >=1 (boot-time check missing)", got)
+	}
+}
+
+func TestRefreshDaily_OffChannelSkipsImmediateCheck(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tag_name":"x"}`))
+	}))
+	t.Cleanup(srv.Close)
+	redirectLatestAPI(t, srv.URL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		RefreshDaily(ctx, t.TempDir(), func() string { return "off" })
+		close(done)
+	}()
+	// Give the immediate-check path a chance to fire if it's going to.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("RefreshDaily did not exit within 2s of cancel")
+	}
+	if got := hits.Load(); got != 0 {
+		t.Errorf("off channel should not call GitHub; got %d hits", got)
 	}
 }
