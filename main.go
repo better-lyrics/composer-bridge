@@ -98,7 +98,7 @@ func main() {
 	// Cache the yt-dlp version once at startup instead of execing the binary
 	// on every /health and every Settings poll. The initial probe runs in a
 	// goroutine so a slow / hanging exec doesn't block the HTTP server from
-	// binding. RefreshDaily updates the cache on every successful upgrade.
+	// binding.
 	var ytdlpVersionCache atomic.Pointer[string]
 	unknown := "unknown"
 	ytdlpVersionCache.Store(&unknown)
