@@ -19,15 +19,15 @@ import (
 // (WebM-Opus); the only audio-bearing formats those clients return are HLS
 // m3u8 (MPEG-TS) plus a single non-HLS mp4 with bundled AAC. So:
 //
-//   1. itag 251 if available (WebM-Opus, smallest playable)
-//   2. any audio-only WebM (covers itag 249/250 / opus-low)
-//   3. any audio-only non-HLS format (avoids the MPEG-TS trap)
-//   4. any non-HLS format at all (catches videos where only a combined
-//      mp4 is exposed; the browser ignores the video track and plays the
-//      bundled AAC just fine in an <audio> element)
-//   5. bestaudio (last resort: even HLS audio is better than nothing)
-//   6. best (would be a combined HLS format; effectively a no-go but
-//      keeps the selector total)
+//  1. itag 251 if available (WebM-Opus, smallest playable)
+//  2. any audio-only WebM (covers itag 249/250 / opus-low)
+//  3. any audio-only non-HLS format (avoids the MPEG-TS trap)
+//  4. any non-HLS format at all (catches videos where only a combined
+//     mp4 is exposed; the browser ignores the video track and plays the
+//     bundled AAC just fine in an <audio> element)
+//  5. bestaudio (last resort: even HLS audio is better than nothing)
+//  6. best (would be a combined HLS format; effectively a no-go but
+//     keeps the selector total)
 //
 // MPEG-TS-over-HLS is intentionally pushed to the last two rungs because no
 // browser <audio> element can decode video/mp2t natively, so saving it to
