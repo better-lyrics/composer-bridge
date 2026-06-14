@@ -56,45 +56,47 @@ const (
 // App wires the bridge's storage and config into Wails-callable methods.
 // Wails dispatches JS calls on separate goroutines, so any field a method both
 // reads and writes needs mutex protection. mu guards cfg, downloadDir,
-// ytdlpPath, latestUpdate, and manifestURL; everything else is set once in
-// New and never mutated.
+// latestUpdate, manifestURL, ytdlpRefresher, ytdlpVersionRefresher, state,
+// bridge, statusEmitter, and unsubStatus; everything else is set once in New
+// and never mutated. The yt-dlp binary path is resolved on demand from cfg +
+// dataDir via GetYtdlpPath so override changes take effect without a restart.
 type App struct {
-	library       *library.Library
-	activity      *activity.Log
-	cfgPath       string
-	dataDir       string
-	thumbDir      string
-	logPath       string
-	version       string
-	ctx           context.Context
-	hideWindow    func(context.Context)
-	showWindow    func(context.Context)
-	ytdlpVersion  func() string
-	state         *bridgestate.Holder
-	bridge        *bridge.Bridge
-	statusEmitter func(ctx context.Context, name string, data any)
-	unsubStatus   func()
-	quitting      atomic.Int32
-	mu            sync.RWMutex
-	cfg           config.Config
-	downloadDir   string
-	ytdlpPath     string
-	latestUpdate  *updater.UpdateInfo
-	manifestURL   string
+	library               *library.Library
+	activity              *activity.Log
+	cfgPath               string
+	dataDir               string
+	thumbDir              string
+	logPath               string
+	version               string
+	ctx                   context.Context
+	hideWindow            func(context.Context)
+	showWindow            func(context.Context)
+	ytdlpVersion          func() string
+	ytdlpRefresher        func()
+	ytdlpVersionRefresher func(string)
+	state                 *bridgestate.Holder
+	bridge                *bridge.Bridge
+	statusEmitter         func(ctx context.Context, name string, data any)
+	unsubStatus           func()
+	quitting              atomic.Int32
+	mu                    sync.RWMutex
+	cfg                   config.Config
+	downloadDir           string
+	latestUpdate          *updater.UpdateInfo
+	manifestURL           string
 }
 
 // New builds an App. Caller retains ownership of lib and act: App does not close them.
 // The new App is installed into the package-level active registry before returning so
 // callbacks that fire before Wails's OnStartup (e.g. SingleInstanceLock from a separate
 // goroutine on app boot) can still find it.
-func New(lib *library.Library, act *activity.Log, cfg config.Config, cfgPath, dataDir, ytdlpPath, version string) *App {
+func New(lib *library.Library, act *activity.Log, cfg config.Config, cfgPath, dataDir, version string) *App {
 	a := &App{
 		library:     lib,
 		activity:    act,
 		cfg:         cfg,
 		cfgPath:     cfgPath,
 		dataDir:     dataDir,
-		ytdlpPath:   ytdlpPath,
 		thumbDir:    filepath.Join(dataDir, "thumbs"),
 		downloadDir: resolveDownloadDir(cfg.DownloadDir),
 		logPath:     filepath.Join(dataDir, "bridge.log"),
@@ -165,8 +167,8 @@ func (a *App) repairBrokenAudio(ctx context.Context) {
 		slog.Warn("repair: list tracks failed", "err", err)
 		return
 	}
+	ytdlpPath := a.GetYtdlpPath()
 	a.mu.RLock()
-	ytdlpPath := a.ytdlpPath
 	format := a.cfg.AudioFormat
 	a.mu.RUnlock()
 	if format == "" {
@@ -422,6 +424,28 @@ func (a *App) GetConfig() config.Config {
 	return a.cfg
 }
 
+// GetYtdlpPath returns the path the bridge should invoke yt-dlp at.
+// Resolves on every call so a SaveConfig that flips YtdlpBinaryPath takes
+// effect immediately for downloads, /health, and version probes. Honors the
+// user-set override when non-empty, else returns the managed binary path
+// under dataDir. Falls back to an empty string if even the managed path
+// cannot be resolved (no asset for this OS/arch), which downstream callers
+// surface as a clear yt-dlp-missing error rather than a silent miss.
+func (a *App) GetYtdlpPath() string {
+	a.mu.RLock()
+	override := a.cfg.YtdlpBinaryPath
+	a.mu.RUnlock()
+	if override != "" {
+		return override
+	}
+	managed, err := ytdlp.BinaryPath(a.dataDir)
+	if err != nil {
+		slog.Warn("resolve managed yt-dlp path", "err", err, "dataDir", a.dataDir)
+		return ""
+	}
+	return managed
+}
+
 // SaveConfig persists cfg to disk and updates the in-memory copy. Changes that affect
 // the HTTP listener (ListenPort, AllowedOrigins) only take effect on the next bridge
 // restart: the running server is not reconfigured in-place. When OpenAtLogin flips
@@ -431,20 +455,28 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	// normalize before persisting so the on-disk shape stays a clean array.
 	cfg.AllowedOrigins = config.SplitAndCleanOrigins(cfg.AllowedOrigins)
 	// ServerEnabled is owned by StartServer/StopServer (tray + Settings
-	// toggle) and is not exposed in the SaveConfig form. Preserve the
-	// server-side authoritative value so a stale form submit cannot undo a
-	// toggle that happened while the form was open.
-	a.mu.RLock()
+	// toggle) and is not exposed in the SaveConfig form. The whole critical
+	// section runs under one write lock so a concurrent tray toggle cannot
+	// slip between capturing the authoritative ServerEnabled and swapping
+	// a.cfg, which would otherwise clobber the toggle with the stale form
+	// value. config.Save runs under the lock too for the same reason: a
+	// concurrent persistServerEnabled writing the new ServerEnabled to disk
+	// would otherwise be overwritten by our stale-cfg save.
+	a.mu.Lock()
 	cfg.ServerEnabled = a.cfg.ServerEnabled
-	a.mu.RUnlock()
 	if err := config.Save(a.cfgPath, cfg); err != nil {
+		a.mu.Unlock()
 		return err
 	}
-	a.mu.Lock()
+	prevChannel := a.cfg.YtdlpChannel
 	prevOpenAtLogin := a.cfg.OpenAtLogin
 	a.cfg = cfg
 	a.downloadDir = resolveDownloadDir(cfg.DownloadDir)
+	refresher := a.ytdlpRefresher
 	a.mu.Unlock()
+	if cfg.YtdlpChannel != prevChannel && refresher != nil {
+		go refresher()
+	}
 	if cfg.OpenAtLogin != prevOpenAtLogin {
 		if err := autostart.SetEnabled(cfg.OpenAtLogin, currentExecPath()); err != nil {
 			return fmt.Errorf("apply open-at-login: %w", err)
@@ -514,6 +546,27 @@ func (a *App) BridgeVersion() string {
 func (a *App) SetYtdlpVersionFn(fn func() string) {
 	a.mu.Lock()
 	a.ytdlpVersion = fn
+	a.mu.Unlock()
+}
+
+// SetYtdlpRefresher installs a callback invoked when the user changes the
+// yt-dlp channel via SaveConfig. main.go wires this to ytdlp.RefreshOnce so
+// channel switches take effect without waiting for the next 24h tick.
+func (a *App) SetYtdlpRefresher(fn func()) {
+	a.mu.Lock()
+	a.ytdlpRefresher = fn
+	a.mu.Unlock()
+}
+
+// SetYtdlpVersionRefresher installs a callback fired after a successful
+// ForceYtdlpUpdate so the cached version string main.go serves to /health and
+// the Settings panel stays fresh without an app restart. main.go forwards the
+// same closure into RefreshDaily and RefreshOnce as their onUpgrade hook, so
+// daily-tick and SaveConfig-kick upgrades refresh the cache too without going
+// through this setter.
+func (a *App) SetYtdlpVersionRefresher(fn func(string)) {
+	a.mu.Lock()
+	a.ytdlpVersionRefresher = fn
 	a.mu.Unlock()
 }
 
@@ -679,8 +732,8 @@ func (a *App) VerifyCookies() (ytdlp.VerifyResult, error) {
 	if !ytdlp.HasCookies(a.dataDir) {
 		return ytdlp.VerifyResult{}, errors.New("no cookies file uploaded")
 	}
+	ytdlpPath := a.GetYtdlpPath()
 	a.mu.RLock()
-	ytdlpPath := a.ytdlpPath
 	parent := a.ctx
 	a.mu.RUnlock()
 	if parent == nil {
@@ -762,11 +815,11 @@ func (a *App) persistServerEnabled(enabled bool) {
 func (a *App) YtdlpVersion() string {
 	a.mu.RLock()
 	fn := a.ytdlpVersion
-	path := a.ytdlpPath
 	a.mu.RUnlock()
 	if fn != nil {
 		return fn()
 	}
+	path := a.GetYtdlpPath()
 	if path == "" {
 		return "unknown"
 	}
@@ -807,22 +860,32 @@ func (a *App) ThumbCacheSize() (int64, error) {
 	return total, nil
 }
 
-// ForceYtdlpUpdate re-downloads the yt-dlp binary unconditionally. Returns the
-// version string of the freshly-installed binary.
+// ForceYtdlpUpdate redownloads the yt-dlp binary using the configured channel.
+// Returns the version string of the freshly-installed binary. Returns an error
+// (without touching the binary) when the user has set a binary-path override:
+// in that mode the user manages the binary themselves.
 func (a *App) ForceYtdlpUpdate() (string, error) {
 	a.mu.RLock()
-	prev := a.ytdlpPath
+	channel := a.cfg.YtdlpChannel
+	override := a.cfg.YtdlpBinaryPath
 	a.mu.RUnlock()
-	if prev != "" {
-		_ = os.Remove(prev)
+	if override != "" {
+		return "", fmt.Errorf("binary path override is set to %s; force update is disabled. Clear the override in Settings to use auto-updates", override)
 	}
-	path, err := ytdlp.Ensure(a.dataDir)
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	a.mu.RLock()
+	versionRefresher := a.ytdlpVersionRefresher
+	a.mu.RUnlock()
+	path, err := ytdlp.ForceUpdate(ctx, a.dataDir, channel, versionRefresher)
 	if err != nil {
+		if errors.Is(err, ytdlp.ErrChannelOff) {
+			return "", fmt.Errorf("yt-dlp auto-updates are turned off; pick stable or nightly in Settings to use force update")
+		}
 		return "", err
 	}
-	a.mu.Lock()
-	a.ytdlpPath = path
-	a.mu.Unlock()
 	return ytdlp.Version(path), nil
 }
 
@@ -834,9 +897,9 @@ func (a *App) DownloadAudio(videoID string) (*library.Track, error) {
 	if err != nil {
 		return nil, err
 	}
+	ytdlpPath := a.GetYtdlpPath()
 	a.mu.RLock()
 	downloadDir := a.downloadDir
-	ytdlpPath := a.ytdlpPath
 	format := a.cfg.AudioFormat
 	a.mu.RUnlock()
 	if downloadDir == "" {

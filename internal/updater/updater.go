@@ -66,20 +66,26 @@ type retryableHTTPError struct{ status int }
 
 func (e *retryableHTTPError) Error() string { return fmt.Sprintf("http %d", e.status) }
 
-// isRetryable: 5xx and net errors retryable, 4xx terminal.
+// isRetryable: caller-side cancellation never retried (propagates immediately);
+// per-request timeouts (DeadlineExceeded, typically wrapped in *url.Error)
+// retry so one slow GitHub response doesn't hard-fail the self-update; 5xx and
+// lower-level network errors (*net.OpError) retry; 4xx are terminal.
 func isRetryable(err error) bool {
 	if err == nil {
 		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
 	}
 	var httpErr *retryableHTTPError
 	if errors.As(err, &httpErr) {
 		return httpErr.status >= 500 && httpErr.status <= 599
 	}
 	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		return true
-	}
-	return false
+	return errors.As(err, &opErr)
 }
 
 // withRetry runs op up to retryMaxAttempts times with exponential backoff plus
@@ -88,7 +94,7 @@ func isRetryable(err error) bool {
 // pending retry.
 func withRetry(ctx context.Context, op func() error) error {
 	var err error
-	for attempt := 0; attempt < retryMaxAttempts; attempt++ {
+	for attempt := range retryMaxAttempts {
 		err = op()
 		if err == nil {
 			return nil

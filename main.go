@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/pprof"
+	"slices"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -51,11 +52,8 @@ func main() {
 	// OnSecondInstanceLaunch (focus a window that is mid-shutdown) and we
 	// silently exit. No OSS project pairs minio/selfupdate with Wails'
 	// SingleInstanceLock so this 500ms is uncharted but empirically generous.
-	for _, arg := range os.Args[1:] {
-		if arg == updater.RelaunchUpdatedFlag {
-			time.Sleep(500 * time.Millisecond)
-			break
-		}
+	if slices.Contains(os.Args[1:], updater.RelaunchUpdatedFlag) {
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	dataDir := resolveDataDir()
@@ -77,8 +75,7 @@ func main() {
 
 	installGoroutineDumpSignal(dataDir)
 
-	ytdlpPath, err := bootstrapYtdlp(dataDir)
-	if err != nil {
+	if err := bootstrapYtdlp(context.Background(), dataDir, cfg.YtdlpChannel, cfg.YtdlpBinaryPath); err != nil {
 		fatal("ensure yt-dlp: %v", err)
 	}
 	bootstrapDeno(dataDir)
@@ -98,25 +95,31 @@ func main() {
 	// Cache the yt-dlp version once at startup instead of execing the binary
 	// on every /health and every Settings poll. The initial probe runs in a
 	// goroutine so a slow / hanging exec doesn't block the HTTP server from
-	// binding. RefreshDaily updates the cache on every successful upgrade.
+	// binding. The closure takes the path as an argument so daily/once/force
+	// upgrades can refresh against the binary they just installed rather than
+	// the boot-time path, which would be stale if the user had a binary-path
+	// override set at boot.
 	var ytdlpVersionCache atomic.Pointer[string]
 	unknown := "unknown"
 	ytdlpVersionCache.Store(&unknown)
-	refreshYtdlpVersion := func() {
-		v := ytdlp.Version(ytdlpPath)
+	refreshYtdlpVersion := func(path string) {
+		v := ytdlp.Version(path)
 		ytdlpVersionCache.Store(&v)
 	}
-	go refreshYtdlpVersion()
 	getYtdlpVersion := func() string { return *ytdlpVersionCache.Load() }
 
 	holder := bridgestate.NewHolder()
 
-	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
+	a := app.New(lib, act, cfg, cfgPath, dataDir, Version)
+	// Probe the boot-time path off-thread so a slow exec doesn't block the
+	// HTTP listener. Resolves through the App so a mid-session override flip
+	// is honored on subsequent refreshes.
+	go refreshYtdlpVersion(a.GetYtdlpPath())
 
 	handlers := &server.Handlers{
 		Library:            lib,
 		Activity:           act,
-		YtdlpPath:          ytdlpPath,
+		YtdlpPath:          a.GetYtdlpPath,
 		YtdlpVersion:       getYtdlpVersion,
 		CookiesPath:        a.CookiesPath,
 		PreferPremiumAudio: a.PreferPremiumAudio,
@@ -170,7 +173,11 @@ func main() {
 
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
-	scheduleYtdlpRefresh(bgCtx, dataDir)
+	scheduleYtdlpRefresh(bgCtx, dataDir,
+		func() string { return a.GetConfig().YtdlpChannel },
+		func() string { return a.GetConfig().YtdlpBinaryPath },
+		refreshYtdlpVersion,
+	)
 	go updater.PollDaily(bgCtx, manifestURL, Version, func(info updater.UpdateInfo) {
 		slog.Info("bridge update available", "version", info.Latest, "current", info.Current)
 		a.SetLatestUpdate(&info)
@@ -180,6 +187,14 @@ func main() {
 	})
 
 	a.SetYtdlpVersionFn(getYtdlpVersion)
+	a.SetYtdlpVersionRefresher(refreshYtdlpVersion)
+	a.SetYtdlpRefresher(func() {
+		cfg := a.GetConfig()
+		if cfg.YtdlpBinaryPath != "" {
+			return
+		}
+		ytdlp.RefreshOnce(bgCtx, dataDir, cfg.YtdlpChannel, refreshYtdlpVersion)
+	})
 	a.SetBridgeState(holder)
 	a.SetBridge(br)
 	a.SetStatusEmitter(func(ctx context.Context, name string, data any) {
@@ -225,11 +240,11 @@ func main() {
 	trayCtrl.Register()
 
 	err = wails.Run(&options.App{
-		Title:            "Composer Bridge",
-		Width:            1024,
-		Height:           700,
-		MinWidth:         800,
-		MinHeight:        540,
+		Title:     "Composer Bridge",
+		Width:     1024,
+		Height:    700,
+		MinWidth:  800,
+		MinHeight: 540,
 		AssetServer: &assetserver.Options{
 			Assets:     assets,
 			Middleware: assetserver.ChainMiddleware(platformInjectMiddleware),

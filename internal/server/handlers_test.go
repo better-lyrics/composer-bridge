@@ -89,7 +89,7 @@ func newTestEnv(t *testing.T, ytdlpPath string) *testEnv {
 	h := &Handlers{
 		Library:   lib,
 		Activity:  act,
-		YtdlpPath: ytdlpPath,
+		YtdlpPath: func() string { return ytdlpPath },
 		ThumbDir:  thumbDir,
 		Bridge:    "0.1.0",
 	}

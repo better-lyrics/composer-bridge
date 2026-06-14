@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -128,6 +129,26 @@ func TestFetchManifest_DoesNotRetryOn404(t *testing.T) {
 	}
 	if got := calls.Load(); got != 1 {
 		t.Errorf("request count: got %d, want 1 (no retry on 4xx)", got)
+	}
+}
+
+// TestIsRetryable_URLErrorTimeoutRetries pins the contract that a per-request
+// timeout (DeadlineExceeded wrapped in *url.Error by Go's http client) is
+// retryable: a single slow GitHub response should not hard-fail self-update.
+func TestIsRetryable_URLErrorTimeoutRetries(t *testing.T) {
+	err := &url.Error{Op: "Get", URL: "https://example.invalid", Err: context.DeadlineExceeded}
+	if !isRetryable(err) {
+		t.Fatal("url.Error wrapping context.DeadlineExceeded should be retryable")
+	}
+}
+
+// TestIsRetryable_CallerCancelDoesNotRetry guards that caller-side
+// cancellation (e.g. app shutdown) propagates immediately without burning
+// retries on a context that will never recover.
+func TestIsRetryable_CallerCancelDoesNotRetry(t *testing.T) {
+	err := &url.Error{Op: "Get", URL: "https://example.invalid", Err: context.Canceled}
+	if isRetryable(err) {
+		t.Fatal("url.Error wrapping context.Canceled must NOT be retryable")
 	}
 }
 

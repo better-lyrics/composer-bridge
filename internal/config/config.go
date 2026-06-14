@@ -97,8 +97,13 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-// Save serialises cfg as indented JSON to path, creating any missing parent directories. Writes are atomic:
-// the bytes go to path+".tmp" first and are then renamed into place; on rename failure the temp file is removed.
+// Save serialises cfg as indented JSON to path, creating any missing parent
+// directories. Writes are atomic: the bytes go to a unique tmp file
+// (os.CreateTemp wildcard suffix) and are then renamed into place. The
+// unique suffix matters because multiple Wails-bound callers (SaveConfig,
+// UploadCookies, persistServerEnabled, etc.) hit Save concurrently; a fixed
+// tmp filename let one writer truncate or rename-away another's in-flight
+// file.
 func Save(path string, cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("mkdir config dir: %w", err)
@@ -107,13 +112,25 @@ func Save(path string, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create config tmp: %w", err)
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err := f.Write(raw); err != nil {
+		f.Close()
 		return fmt.Errorf("write config tmp: %w", err)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		return fmt.Errorf("chmod config tmp: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close config tmp: %w", err)
 	}
 	// TODO(windows): os.Rename onto an existing file fails on Windows; swap to a Windows-safe atomic rename helper if/when the bridge ships there.
 	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
 		return fmt.Errorf("rename config tmp: %w", err)
 	}
 	return nil

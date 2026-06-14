@@ -9,16 +9,29 @@ import (
 	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
 )
 
-// bootstrapYtdlp downloads yt-dlp on first run and schedules the daily
-// refresh. Skipped under the `bindings` build tag (used by wails build's
+// bootstrapYtdlp downloads yt-dlp on first run when no user override is set.
+// Skipped under the `bindings` build tag (used by wails build's
 // "Generating bindings" phase) because that phase runs main() just to
-// introspect bound types and shouldn't hit GitHub's release API.
-func bootstrapYtdlp(dataDir string) (string, error) {
-	return ytdlp.Ensure(dataDir)
+// introspect bound types and shouldn't hit GitHub's release API. The
+// effective path is read on demand via app.GetYtdlpPath so a mid-session
+// override flip is honored without restart.
+func bootstrapYtdlp(ctx context.Context, dataDir, channel, override string) error {
+	// When the user supplies an explicit binary path we trust it verbatim:
+	// no Ensure call, no download, no stat check. They own the lifecycle.
+	if override != "" {
+		return nil
+	}
+	_, err := ytdlp.Ensure(ctx, dataDir, channel)
+	return err
 }
 
-func scheduleYtdlpRefresh(ctx context.Context, dataDir string) {
-	go ytdlp.RefreshDaily(ctx, dataDir)
+// scheduleYtdlpRefresh starts the daily upgrade poll. channelFn and
+// overrideFn are forwarded into RefreshDaily, which re-reads them on every
+// tick so a mid-session override flip stops the next poll without needing
+// a restart. onUpgrade is forwarded so every successful tick-driven
+// upgrade also refreshes main.go's cached version string.
+func scheduleYtdlpRefresh(ctx context.Context, dataDir string, channelFn, overrideFn func() string, onUpgrade func(string)) {
+	go ytdlp.RefreshDaily(ctx, dataDir, channelFn, overrideFn, onUpgrade)
 }
 
 // bootstrapDeno downloads deno on first run and registers <dataDir>/bin with
