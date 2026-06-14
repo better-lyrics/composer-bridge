@@ -430,8 +430,12 @@ func TestSave_NoStaleTmpOnSuccess(t *testing.T) {
 	if err := Save(path, Defaults()); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
-		t.Errorf("Save: stale .tmp present after successful save: stat err = %v", err)
+	stale, err := filepath.Glob(path + ".*.tmp")
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	if len(stale) > 0 {
+		t.Errorf("Save: stale tmp files present after successful save: %v", stale)
 	}
 }
 
@@ -471,6 +475,43 @@ func TestSave_Load_PreservesPreferPremiumAudio(t *testing.T) {
 	}
 	if !loaded.PreferPremiumAudio {
 		t.Fatalf("PreferPremiumAudio lost on round-trip")
+	}
+}
+
+// TestSave_ConcurrentWritersDoNotCollideOnTmp guards the unique tmp suffix:
+// without it, two goroutines racing through Save would write to the same
+// path+".tmp" and one would lose its rename target. With os.CreateTemp's
+// wildcard suffix each writer gets a unique tmp file, so all renames land
+// and the final file is a valid config from one of the writers.
+func TestSave_ConcurrentWritersDoNotCollideOnTmp(t *testing.T) {
+	path := tmpConfigPath(t)
+	const writers = 16
+
+	errs := make(chan error, writers)
+	for i := 0; i < writers; i++ {
+		cfg := Defaults()
+		cfg.ListenPort = 8000 + i
+		go func() { errs <- Save(path, cfg) }()
+	}
+	for i := 0; i < writers; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("Save #%d: %v", i, err)
+		}
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load after concurrent saves: %v", err)
+	}
+	if loaded.ListenPort < 8000 || loaded.ListenPort >= 8000+writers {
+		t.Errorf("Load: ListenPort %d not from any concurrent writer", loaded.ListenPort)
+	}
+	stale, err := filepath.Glob(path + ".*.tmp")
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	if len(stale) > 0 {
+		t.Errorf("stale tmp files left behind: %v", stale)
 	}
 }
 
