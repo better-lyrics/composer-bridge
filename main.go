@@ -75,8 +75,7 @@ func main() {
 
 	installGoroutineDumpSignal(dataDir)
 
-	ytdlpPath, err := bootstrapYtdlp(context.Background(), dataDir, cfg.YtdlpChannel, cfg.YtdlpBinaryPath)
-	if err != nil {
+	if err := bootstrapYtdlp(context.Background(), dataDir, cfg.YtdlpChannel, cfg.YtdlpBinaryPath); err != nil {
 		fatal("ensure yt-dlp: %v", err)
 	}
 	bootstrapDeno(dataDir)
@@ -107,17 +106,20 @@ func main() {
 		v := ytdlp.Version(path)
 		ytdlpVersionCache.Store(&v)
 	}
-	go refreshYtdlpVersion(ytdlpPath)
 	getYtdlpVersion := func() string { return *ytdlpVersionCache.Load() }
 
 	holder := bridgestate.NewHolder()
 
-	a := app.New(lib, act, cfg, cfgPath, dataDir, ytdlpPath, Version)
+	a := app.New(lib, act, cfg, cfgPath, dataDir, Version)
+	// Probe the boot-time path off-thread so a slow exec doesn't block the
+	// HTTP listener. Resolves through the App so a mid-session override flip
+	// is honored on subsequent refreshes.
+	go refreshYtdlpVersion(a.GetYtdlpPath())
 
 	handlers := &server.Handlers{
 		Library:            lib,
 		Activity:           act,
-		YtdlpPath:          ytdlpPath,
+		YtdlpPath:          a.GetYtdlpPath,
 		YtdlpVersion:       getYtdlpVersion,
 		CookiesPath:        a.CookiesPath,
 		PreferPremiumAudio: a.PreferPremiumAudio,

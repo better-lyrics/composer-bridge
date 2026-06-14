@@ -86,14 +86,35 @@ func binaryPath(dataDir string) (string, error) {
 	return filepath.Join(dataDir, name), nil
 }
 
+// BinaryPath returns the managed yt-dlp binary path inside dataDir for the
+// current OS/arch, ignoring any user-set override. Callers that need the
+// effective path (override or managed) should resolve that at a higher
+// layer; this only knows the managed convention.
+func BinaryPath(dataDir string) (string, error) {
+	return binaryPath(dataDir)
+}
+
+// ErrChannelOff is returned by ForceUpdate when the caller asks to force an
+// update with channel "off". Ensure intentionally does NOT return this:
+// first-boot with channel=off still needs a working binary, so Ensure
+// falls back to stable. ForceUpdate is the explicit user-driven path and
+// respects the off preference. App-layer callers wrap this into a
+// user-friendly message; package-internal callers can recover it via
+// errors.Is.
+var ErrChannelOff = errors.New("yt-dlp channel is off")
+
 // ForceUpdate redownloads the channel's latest yt-dlp release into dataDir,
 // bypassing Ensure's existence check. On failure the prior binary is preserved
 // because installBinary uses atomic tmp+rename: the on-disk file is only
-// replaced after a complete successful download. onUpgrade fires after a
-// successful download with the path that was just installed so callers can
-// refresh cached state (e.g. the version string main.go serves to /health)
-// against the right binary; nil is allowed.
+// replaced after a complete successful download. Returns ErrChannelOff if
+// channel == "off". onUpgrade fires after a successful download with the
+// path that was just installed so callers can refresh cached state (e.g.
+// the version string main.go serves to /health) against the right binary;
+// nil is allowed.
 func ForceUpdate(ctx context.Context, dataDir, channel string, onUpgrade func(string)) (string, error) {
+	if channel == "off" {
+		return "", ErrChannelOff
+	}
 	binPath, err := binaryPath(dataDir)
 	if err != nil {
 		return "", err

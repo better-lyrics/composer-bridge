@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -43,7 +42,7 @@ func newTestApp(t *testing.T) (*App, *library.Library, *activity.Log, string) {
 
 	cfgPath := filepath.Join(dir, "config.json")
 	cfg := config.Defaults()
-	a := New(lib, act, cfg, cfgPath, dir, "", "0.1.0")
+	a := New(lib, act, cfg, cfgPath, dir, "0.1.0")
 	// Tests don't pass a real Wails ctx, so swap the runtime hooks for no-ops.
 	a.hideWindow = func(context.Context) {}
 	a.showWindow = func(context.Context) {}
@@ -295,6 +294,87 @@ func TestSaveConfig_PreservesServerEnabledAgainstStaleForm(t *testing.T) {
 	}
 }
 
+// TestGetYtdlpPath_HonorsOverride asserts that the resolved yt-dlp path
+// reflects the in-memory cfg.YtdlpBinaryPath on every call, falling back to
+// the managed binary path under dataDir when the override is empty. This is
+// what lets a Settings flip take effect without an app restart.
+func TestGetYtdlpPath_HonorsOverride(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+
+	managed, err := ytdlp.BinaryPath(a.dataDir)
+	if err != nil {
+		t.Skipf("no yt-dlp asset for this platform: %v", err)
+	}
+
+	a.mu.Lock()
+	a.cfg.YtdlpBinaryPath = ""
+	a.mu.Unlock()
+	if got := a.GetYtdlpPath(); got != managed {
+		t.Errorf("override empty: got %q, want managed %q", got, managed)
+	}
+
+	override := "/opt/whatever/yt-dlp"
+	a.mu.Lock()
+	a.cfg.YtdlpBinaryPath = override
+	a.mu.Unlock()
+	if got := a.GetYtdlpPath(); got != override {
+		t.Errorf("override set: got %q, want %q", got, override)
+	}
+
+	a.mu.Lock()
+	a.cfg.YtdlpBinaryPath = ""
+	a.mu.Unlock()
+	if got := a.GetYtdlpPath(); got != managed {
+		t.Errorf("override cleared: got %q, want managed %q", got, managed)
+	}
+}
+
+// TestSaveConfig_DoesNotClobberConcurrentServerToggle exercises the lock
+// dance: while a hammer goroutine keeps flipping ServerEnabled=true via
+// persistServerEnabled, a SaveConfig writer fires repeatedly with a stale
+// form value that says ServerEnabled=false. With the read-release-acquire
+// pattern (pre-fix) SaveConfig captured the form-state ServerEnabled before
+// releasing the read lock, then re-acquired the write lock and swapped a.cfg
+// wholesale, clobbering the persistServerEnabled(true) writes that landed
+// in between. Under the single-critical-section fix, SaveConfig reads
+// ServerEnabled inside the same lock that swaps a.cfg, so the hammered
+// true value can never be silently overwritten.
+func TestSaveConfig_DoesNotClobberConcurrentServerToggle(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	a.mu.Lock()
+	a.cfg.ServerEnabled = false
+	a.mu.Unlock()
+
+	cfgForm := a.GetConfig()
+	cfgForm.ServerEnabled = false
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			a.persistServerEnabled(true)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			if err := a.SaveConfig(cfgForm); err != nil {
+				t.Errorf("SaveConfig: %v", err)
+				return
+			}
+		}
+	}()
+	wg.Wait()
+
+	a.mu.RLock()
+	got := a.cfg.ServerEnabled
+	a.mu.RUnlock()
+	if !got {
+		t.Errorf("ServerEnabled silently clobbered by stale SaveConfig: got false, want true")
+	}
+}
+
 func TestOpenInComposer_NoLibraryEntry_ReturnsVideoIdOnly(t *testing.T) {
 	a, _, _, _ := newTestApp(t)
 	got := a.OpenInComposer("dQw4w9WgXcQ")
@@ -355,7 +435,7 @@ func TestBridgeVersion_ReflectsConstructorArg(t *testing.T) {
 	}
 	defer act.Close()
 
-	a := New(lib, act, config.Defaults(), filepath.Join(dir, "config.json"), dir, "", "9.9.9")
+	a := New(lib, act, config.Defaults(), filepath.Join(dir, "config.json"), dir, "9.9.9")
 	if got := a.BridgeVersion(); got != "9.9.9" {
 		t.Errorf("BridgeVersion: got %q, want %q", got, "9.9.9")
 	}
@@ -1020,7 +1100,7 @@ func TestRepairBrokenAudio_OverwritesMpegTSInPlaceAndUpdatesLibrary(t *testing.T
 	// Fake yt-dlp writes a known fresh blob to whatever -o path it is given.
 	const freshPayload = "fresh webm-opus payload from repair"
 	a.mu.Lock()
-	a.ytdlpPath = writeFakeYtdlpForApp(t, `
+	a.cfg.YtdlpBinaryPath = writeFakeYtdlpForApp(t, `
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-o" ]; then
     printf '`+freshPayload+`' > "$2"
@@ -1082,7 +1162,7 @@ func TestRepairBrokenAudio_EmptyAudioPathSkipped(t *testing.T) {
 	// invocation either by its presence or by counting marker bytes.
 	sentinel := filepath.Join(t.TempDir(), "called")
 	a.mu.Lock()
-	a.ytdlpPath = writeFakeYtdlpForApp(t, "printf x >> "+sentinel)
+	a.cfg.YtdlpBinaryPath = writeFakeYtdlpForApp(t, "printf x >> "+sentinel)
 	a.cfg.AudioFormat = "opus"
 	a.mu.Unlock()
 
@@ -1113,7 +1193,7 @@ func TestRepairBrokenAudio_CancelledContextStopsLoop(t *testing.T) {
 	}
 
 	a.mu.Lock()
-	a.ytdlpPath = writeFakeYtdlpForApp(t, "exit 1") // would fail per call; cancel short-circuits earlier
+	a.cfg.YtdlpBinaryPath = writeFakeYtdlpForApp(t, "exit 1") // would fail per call; cancel short-circuits earlier
 	a.cfg.AudioFormat = "opus"
 	a.downloadDir = dl
 	a.mu.Unlock()
@@ -1170,8 +1250,7 @@ func TestSaveConfig_ChannelChangeKicksRefresher(t *testing.T) {
 // see prev="stable" and each fire the refresher, even though only one real
 // transition occurred. With prevChannel captured inside the same critical
 // section as the cfg swap, the second writer sees prev="nightly" (set by the
-// first) and skips firing. config.Save is not itself concurrent-safe across
-// a single tmp filename, so the helper retries on rename collisions.
+// first) and skips firing.
 func TestSaveConfig_ConcurrentIdenticalFlipsKickRefresherOnce(t *testing.T) {
 	a, _, _, _ := newTestApp(t)
 	a.mu.Lock()
@@ -1180,20 +1259,6 @@ func TestSaveConfig_ConcurrentIdenticalFlipsKickRefresherOnce(t *testing.T) {
 
 	var calls atomic.Int32
 	a.SetYtdlpRefresher(func() { calls.Add(1) })
-
-	saveWithRetry := func(cfg config.Config) error {
-		for i := 0; i < 20; i++ {
-			err := a.SaveConfig(cfg)
-			if err == nil {
-				return nil
-			}
-			if !strings.Contains(err.Error(), "rename config tmp") {
-				return err
-			}
-			time.Sleep(time.Millisecond)
-		}
-		return fmt.Errorf("SaveConfig kept colliding on tmp rename")
-	}
 
 	cfg := a.GetConfig()
 	cfg.YtdlpChannel = "nightly"
@@ -1205,7 +1270,7 @@ func TestSaveConfig_ConcurrentIdenticalFlipsKickRefresherOnce(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			if err := saveWithRetry(cfg); err != nil {
+			if err := a.SaveConfig(cfg); err != nil {
 				t.Errorf("SaveConfig: %v", err)
 			}
 		}()

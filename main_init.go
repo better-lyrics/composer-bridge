@@ -9,17 +9,20 @@ import (
 	"github.com/better-lyrics/composer-bridge/internal/ytdlp"
 )
 
-// bootstrapYtdlp downloads yt-dlp on first run and schedules the daily
-// refresh. Skipped under the `bindings` build tag (used by wails build's
+// bootstrapYtdlp downloads yt-dlp on first run when no user override is set.
+// Skipped under the `bindings` build tag (used by wails build's
 // "Generating bindings" phase) because that phase runs main() just to
-// introspect bound types and shouldn't hit GitHub's release API.
-func bootstrapYtdlp(ctx context.Context, dataDir, channel, override string) (string, error) {
+// introspect bound types and shouldn't hit GitHub's release API. The
+// effective path is read on demand via app.GetYtdlpPath so a mid-session
+// override flip is honored without restart.
+func bootstrapYtdlp(ctx context.Context, dataDir, channel, override string) error {
 	// When the user supplies an explicit binary path we trust it verbatim:
 	// no Ensure call, no download, no stat check. They own the lifecycle.
 	if override != "" {
-		return override, nil
+		return nil
 	}
-	return ytdlp.Ensure(ctx, dataDir, channel)
+	_, err := ytdlp.Ensure(ctx, dataDir, channel)
+	return err
 }
 
 // scheduleYtdlpRefresh starts the daily upgrade poll. channelFn and

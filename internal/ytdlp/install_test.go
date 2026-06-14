@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -508,6 +509,17 @@ func TestRefreshIfNewer_FiresOnUpgradeAfterDownload(t *testing.T) {
 }
 
 // -- A2: ForceUpdate ---------------------------------------------------------
+
+// TestForceUpdate_OffChannelReturnsErrChannelOff asserts the package owns the
+// "force update is meaningless when channel is off" contract. Without a
+// registered httptest server, hitting the real network would itself be a
+// loud failure, so this also implicitly verifies no fetch is attempted.
+func TestForceUpdate_OffChannelReturnsErrChannelOff(t *testing.T) {
+	_, err := ForceUpdate(context.Background(), t.TempDir(), "off", nil)
+	if !errors.Is(err, ErrChannelOff) {
+		t.Errorf("ForceUpdate(channel=off): got err=%v, want ErrChannelOff", err)
+	}
+}
 
 func TestForceUpdate_KeepsExistingBinaryOnFailure(t *testing.T) {
 	dataDir := t.TempDir()
