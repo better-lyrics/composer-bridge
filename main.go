@@ -124,6 +124,7 @@ func main() {
 		CookiesPath:        a.CookiesPath,
 		PreferPremiumAudio: a.PreferPremiumAudio,
 		DownloadDir:        a.DownloadDir,
+		AutoDownload:       a.AutoDownloadToLibrary,
 		ThumbDir:           filepath.Join(dataDir, "thumbs"),
 		Bridge:             Version,
 		AudioFormat:        cfg.AudioFormat,

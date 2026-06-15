@@ -80,7 +80,13 @@ type Handlers struct {
 	// resolves to a location under this root, mirroring the ThumbDir guard
 	// used by Thumb.
 	DownloadDir func() string
-	ThumbDir    string
+	// AutoDownload reports whether a cache-miss on /audio/{id} should tee the
+	// yt-dlp stdout into a file under DownloadDir while streaming the same
+	// bytes to the response. Live-read per request so a Settings flip takes
+	// effect immediately. A nil callback (or a false return) preserves the
+	// existing stream-only behavior.
+	AutoDownload func() bool
+	ThumbDir     string
 	Bridge      string
 	AudioFormat string
 	Emitter     events.Emitter
@@ -129,6 +135,16 @@ func (h *Handlers) downloadDir() string {
 		return ""
 	}
 	return h.DownloadDir()
+}
+
+// autoDownload returns the live auto-download-to-library flag via the
+// callback, or false when no callback is wired. Centralized so every audio
+// call site reads the same value on every request.
+func (h *Handlers) autoDownload() bool {
+	if h.AutoDownload == nil {
+		return false
+	}
+	return h.AutoDownload()
 }
 
 // Health returns bridge version, yt-dlp version, and a literal "ok" status. Field names are locked to Composer's BridgeHealth interface.
@@ -180,15 +196,26 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	}
 	h.writeAudioHeaders(w, audioContentType(format), track)
 	tw := &trackingWriter{rw: w}
+	capture := h.openAutoDownloadCapture(videoID, track, format)
+	var streamW io.Writer = tw
+	if capture != nil {
+		streamW = io.MultiWriter(tw, capture.file)
+	}
 	streamCtx, cancel := context.WithTimeout(r.Context(), audioStreamTTL)
 	defer cancel()
-	err := ytdlp.StreamAudio(streamCtx, h.YtdlpPath(), videoID, format, h.cookiesPath(), h.preferPremium(), tw)
+	err := ytdlp.StreamAudio(streamCtx, h.YtdlpPath(), videoID, format, h.cookiesPath(), h.preferPremium(), streamW)
 	if err == nil {
+		if capture != nil {
+			capture.finalize(videoID, h)
+		}
 		h.endActivity(actID, activity.StatusOK, "")
 		if h.State != nil {
 			h.State.EndDownload("")
 		}
 		return
+	}
+	if capture != nil {
+		capture.discard()
 	}
 	h.endActivity(actID, activity.StatusError, fmt.Sprintf("%s: %v", videoID, err))
 	if h.State != nil {
@@ -199,6 +226,100 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, http.StatusBadGateway, fmt.Sprintf("yt-dlp failed for %s", videoID))
+}
+
+// autoDownloadCapture is the per-request state for tee-while-streaming. Lives
+// for the duration of one Audio call: file is the open .part handle that the
+// io.MultiWriter writes through alongside the HTTP response; finalPath is the
+// stable path the .part is renamed onto when yt-dlp exits clean. Callers go
+// through openAutoDownloadCapture so the nil-capture short circuit stays in
+// one place.
+type autoDownloadCapture struct {
+	file      *os.File
+	finalPath string
+}
+
+// openAutoDownloadCapture returns a capture handle when auto-download is on,
+// the track has a non-empty title to base the filename on, and the download
+// dir is configured and writable; otherwise nil so the streaming path stays
+// stream-only. The .part suffix uses os.CreateTemp so two concurrent leaders
+// for the same videoID can't collide on the same temp filename.
+func (h *Handlers) openAutoDownloadCapture(videoID string, track *library.Track, format string) *autoDownloadCapture {
+	if !h.autoDownload() {
+		return nil
+	}
+	if track == nil || track.Title == "" {
+		return nil
+	}
+	root := h.downloadDir()
+	if root == "" {
+		return nil
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		slog.Warn("autodl: mkdir download dir failed", "videoID", videoID, "path", root, "err", err)
+		return nil
+	}
+	base := sanitizeAudioFilename(track.Title) + "." + ytdlp.FormatExtension(format)
+	part, err := os.CreateTemp(root, base+".*.part")
+	if err != nil {
+		slog.Warn("autodl: create part file failed", "videoID", videoID, "err", err)
+		return nil
+	}
+	return &autoDownloadCapture{file: part, finalPath: filepath.Join(root, base)}
+}
+
+// finalize closes the .part file, renames it onto the stable filename, stats
+// the result to learn the on-disk size, marks the library row, and emits a
+// library:update so any open Library view refreshes. Failures here are logged
+// and swallowed: the audio response has already streamed successfully, and a
+// failure to persist must not corrupt the client's view of the request.
+func (c *autoDownloadCapture) finalize(videoID string, h *Handlers) {
+	if err := c.file.Close(); err != nil {
+		slog.Warn("autodl: close part failed", "videoID", videoID, "err", err)
+		os.Remove(c.file.Name())
+		return
+	}
+	if err := os.Rename(c.file.Name(), c.finalPath); err != nil {
+		slog.Warn("autodl: rename part failed", "videoID", videoID, "tmp", c.file.Name(), "dest", c.finalPath, "err", err)
+		os.Remove(c.file.Name())
+		return
+	}
+	info, err := os.Stat(c.finalPath)
+	if err != nil {
+		slog.Warn("autodl: stat downloaded file failed", "videoID", videoID, "path", c.finalPath, "err", err)
+		return
+	}
+	if err := h.Library.MarkAudioDownloaded(videoID, c.finalPath, info.Size()); err != nil {
+		slog.Warn("autodl: mark library failed", "videoID", videoID, "err", err)
+		return
+	}
+	h.emitLibraryUpdate(videoID)
+}
+
+// discard closes and removes the .part file. Used on every failure path so a
+// half-written cache never lingers under DownloadDir where the next request
+// would otherwise pick it up as a valid cache hit.
+func (c *autoDownloadCapture) discard() {
+	_ = c.file.Close()
+	_ = os.Remove(c.file.Name())
+}
+
+// sanitizeAudioFilename strips characters that would break a filename on any
+// supported OS and trims to a sensible length. Duplicated from app.go on
+// purpose: cross-package shared helpers in internal packages get hard to find
+// quickly, and this is a small enough function that one canonical sanitiser
+// per call site is fine.
+func sanitizeAudioFilename(name string) string {
+	if name == "" {
+		return "track"
+	}
+	repl := strings.NewReplacer("/", "-", "\\", "-", ":", "-", "*", "-",
+		"?", "-", "\"", "-", "<", "-", ">", "-", "|", "-")
+	out := repl.Replace(name)
+	if len(out) > 120 {
+		out = out[:120]
+	}
+	return out
 }
 
 // writeAudioHeaders writes the headers shared between the cache-hit and

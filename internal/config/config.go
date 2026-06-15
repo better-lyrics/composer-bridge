@@ -41,6 +41,12 @@ type Config struct {
 	LogLevel           string `json:"log_level"`
 	DataDir            string `json:"data_dir"`
 	DownloadDir        string `json:"download_dir"`
+	// AutoDownloadToLibrary, when true, makes /audio/{id} on a cache miss tee
+	// the yt-dlp stdout into a file under DownloadDir while sending the same
+	// bytes to the HTTP response. The next play for that videoID hits the
+	// cache-first branch, so one yt-dlp invocation populates both. Off by
+	// default so fresh installs match the documented "opt-in downloads" model.
+	AutoDownloadToLibrary bool `json:"auto_download_to_library"`
 }
 
 // Defaults returns the canonical default Config. Each call returns a fresh value: mutating the result, including

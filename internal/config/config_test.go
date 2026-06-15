@@ -106,19 +106,20 @@ func TestSaveLoad_RoundTripsAllFields(t *testing.T) {
 	path := tmpConfigPath(t)
 
 	in := Config{
-		ListenPort:      9090,
-		UseRandomIfBusy: false,
-		AllowedOrigins:  []string{"https://a.test", "https://b.test"},
-		YtdlpChannel:    "nightly",
-		YtdlpBinaryPath: "/usr/local/bin/yt-dlp",
-		OpenAtLogin:     true,
-		ShowMenuBarIcon: false,
-		MaxConcurrent:   7,
-		AudioFormat:     "opus",
-		AudioQuality:    "192k",
-		LogLevel:        "debug",
-		DataDir:         "/var/lib/composer-bridge",
-		DownloadDir:     "/home/me/Music",
+		ListenPort:            9090,
+		UseRandomIfBusy:       false,
+		AllowedOrigins:        []string{"https://a.test", "https://b.test"},
+		YtdlpChannel:          "nightly",
+		YtdlpBinaryPath:       "/usr/local/bin/yt-dlp",
+		OpenAtLogin:           true,
+		ShowMenuBarIcon:       false,
+		MaxConcurrent:         7,
+		AudioFormat:           "opus",
+		AudioQuality:          "192k",
+		LogLevel:              "debug",
+		DataDir:               "/var/lib/composer-bridge",
+		DownloadDir:           "/home/me/Music",
+		AutoDownloadToLibrary: true,
 	}
 
 	if err := Save(path, in); err != nil {
@@ -390,19 +391,20 @@ func TestSaveLoad_DeepEqualRegressionGuard(t *testing.T) {
 	path := tmpConfigPath(t)
 
 	in := Config{
-		ListenPort:      4242,
-		UseRandomIfBusy: false,
-		AllowedOrigins:  []string{"https://x.test"},
-		YtdlpChannel:    "nightly",
-		YtdlpBinaryPath: "/opt/ytdlp",
-		OpenAtLogin:     true,
-		ShowMenuBarIcon: false,
-		MaxConcurrent:   9,
-		AudioFormat:     "mp3",
-		AudioQuality:    "320k",
-		LogLevel:        "warn",
-		DataDir:         "/tmp/data",
-		DownloadDir:     "/tmp/dl",
+		ListenPort:            4242,
+		UseRandomIfBusy:       false,
+		AllowedOrigins:        []string{"https://x.test"},
+		YtdlpChannel:          "nightly",
+		YtdlpBinaryPath:       "/opt/ytdlp",
+		OpenAtLogin:           true,
+		ShowMenuBarIcon:       false,
+		MaxConcurrent:         9,
+		AudioFormat:           "mp3",
+		AudioQuality:          "320k",
+		LogLevel:              "warn",
+		DataDir:               "/tmp/data",
+		DownloadDir:           "/tmp/dl",
+		AutoDownloadToLibrary: true,
 	}
 
 	if err := Save(path, in); err != nil {
@@ -518,5 +520,27 @@ func TestSave_ConcurrentWritersDoNotCollideOnTmp(t *testing.T) {
 func TestDefaults_PreferPremiumAudioFalse(t *testing.T) {
 	if Defaults().PreferPremiumAudio {
 		t.Fatalf("Defaults().PreferPremiumAudio should be false (opt-in)")
+	}
+}
+
+func TestDefaults_AutoDownloadToLibraryFalse(t *testing.T) {
+	if Defaults().AutoDownloadToLibrary {
+		t.Fatalf("Defaults().AutoDownloadToLibrary should be false (opt-in)")
+	}
+}
+
+func TestSave_Load_PreservesAutoDownloadToLibrary(t *testing.T) {
+	path := tmpConfigPath(t)
+	cfg := Defaults()
+	cfg.AutoDownloadToLibrary = true
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !loaded.AutoDownloadToLibrary {
+		t.Fatalf("AutoDownloadToLibrary lost on round-trip")
 	}
 }

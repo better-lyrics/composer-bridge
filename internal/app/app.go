@@ -596,6 +596,15 @@ func (a *App) SetStatusEmitter(emit func(ctx context.Context, name string, data 
 	a.mu.Unlock()
 }
 
+// AutoDownloadToLibrary reports whether /audio/{id} on a cache miss should
+// tee the yt-dlp stdout into a file under DownloadDir. Read on every request
+// so a Settings flip takes effect immediately.
+func (a *App) AutoDownloadToLibrary() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.cfg.AutoDownloadToLibrary
+}
+
 // DownloadDir returns the absolute path of the user-configured audio download
 // root. Read by the cache-first branch of the /audio/{id} handler (via the
 // callback in main.go) to decide whether a track's library-recorded AudioPath

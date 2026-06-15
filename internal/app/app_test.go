@@ -895,6 +895,23 @@ func TestApp_CookiesState_ReflectsPreferPremium(t *testing.T) {
 	}
 }
 
+// -- AutoDownloadToLibrary -----------------------------------------------------
+
+func TestApp_AutoDownloadToLibrary_ReadsLiveConfig(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	if a.AutoDownloadToLibrary() {
+		t.Fatalf("AutoDownloadToLibrary: default should be false")
+	}
+	cfg := a.GetConfig()
+	cfg.AutoDownloadToLibrary = true
+	if err := a.SaveConfig(cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	if !a.AutoDownloadToLibrary() {
+		t.Fatalf("AutoDownloadToLibrary: got false after flipping cfg, want true")
+	}
+}
+
 // -- Update flow --------------------------------------------------------------
 
 func TestApp_LatestUpdate_ReturnsNilByDefault(t *testing.T) {
