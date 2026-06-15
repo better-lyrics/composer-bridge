@@ -921,7 +921,7 @@ func (a *App) DownloadAudio(videoID string) (*library.Track, error) {
 		format = "opus"
 	}
 	ext := ytdlp.FormatExtension(format)
-	dest := filepath.Join(downloadDir, sanitizeFilename(track.Title)+"."+ext)
+	dest := filepath.Join(downloadDir, library.AudioFilename(track.Title, videoID, ext))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	actID := a.startActivity(activity.KindAudioDownload, videoID)
@@ -999,17 +999,4 @@ func (a *App) endActivity(id int64, status activity.Status, message string) {
 		return
 	}
 	_ = a.activity.End(id, status, message)
-}
-
-func sanitizeFilename(name string) string {
-	if name == "" {
-		return "track"
-	}
-	repl := strings.NewReplacer("/", "-", "\\", "-", ":", "-", "*", "-",
-		"?", "-", "\"", "-", "<", "-", ">", "-", "|", "-")
-	out := repl.Replace(name)
-	if len(out) > 120 {
-		out = out[:120]
-	}
-	return out
 }

@@ -1341,7 +1341,7 @@ func TestAudio_AutoDownload_TeeStreamWritesFileAndMarksLibrary(t *testing.T) {
 		t.Errorf("client body: got %q, want %q", body, payload)
 	}
 
-	wantPath := filepath.Join(dlDir, "Hello World.opus")
+	wantPath := filepath.Join(dlDir, library.AudioFilename("Hello World", "RgKAFK5djSk", "opus"))
 	raw, err := os.ReadFile(wantPath)
 	if err != nil {
 		t.Fatalf("read saved file %q: %v", wantPath, err)
@@ -1380,7 +1380,7 @@ func TestAudio_AutoDownload_MidStreamFailureCleansPartAndLeavesLibraryEmpty(t *t
 	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 
-	finalPath := filepath.Join(dlDir, "Broken.opus")
+	finalPath := filepath.Join(dlDir, library.AudioFilename("Broken", "RgKAFK5djSk", "opus"))
 	if _, err := os.Stat(finalPath); !os.IsNotExist(err) {
 		t.Errorf("final audio file %q exists after failed yt-dlp run; auto-download must roll back on failure", finalPath)
 	}
@@ -1434,6 +1434,97 @@ func TestAudio_AutoDownload_DisabledLeavesNoFile(t *testing.T) {
 	}
 	if got.AudioPath != "" {
 		t.Errorf("AudioPath: got %q, want empty (auto-download off must not mutate library)", got.AudioPath)
+	}
+}
+
+// TestSafeCacheWriter_WriteErrorSwallowedAndCleansUp locks in the contract
+// that a write failure on the cache leg never propagates out of the writer
+// (so io.MultiWriter cannot short-circuit and kill the live audio stream)
+// and that the poisoned writer cleans up its own .part file.
+func TestSafeCacheWriter_WriteErrorSwallowedAndCleansUp(t *testing.T) {
+	dir := t.TempDir()
+	f, err := os.CreateTemp(dir, "test.*.part")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	path := f.Name()
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	s := &safeCacheWriter{file: f}
+
+	payload := []byte("some audio bytes")
+	n, err := s.Write(payload)
+	if err != nil {
+		t.Fatalf("Write returned error: %v (must be swallowed)", err)
+	}
+	if n != len(payload) {
+		t.Fatalf("Write n: got %d, want %d (must report full length)", n, len(payload))
+	}
+	if !s.poisoned {
+		t.Fatalf("writer not marked poisoned after underlying failure")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf(".part file not removed after poison: stat err=%v", err)
+	}
+
+	// Subsequent writes also swallow and report success.
+	n, err = s.Write(payload)
+	if err != nil || n != len(payload) {
+		t.Fatalf("post-poison Write: n=%d err=%v, want %d, nil", n, len(payload), err)
+	}
+}
+
+// TestAudio_AutoDownload_CollisionResolvedByVideoID locks in the fix for the
+// cross-videoID filename collision: two tracks with identical titles must
+// land on disk under distinct paths (videoID embedded) so the library row
+// for one never references bytes belonging to the other.
+func TestAudio_AutoDownload_CollisionResolvedByVideoID(t *testing.T) {
+	const payload = "tee-stream payload bytes"
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'tee-stream payload bytes'`))
+	dlDir := filepath.Join(t.TempDir(), "downloads")
+	env.handlers.DownloadDir = func() string { return dlDir }
+	env.handlers.AutoDownload = func() bool { return true }
+	env.handlers.AudioFormat = "opus"
+
+	const idA, idB = "RgKAFK5djSk", "dQw4w9WgXcQ"
+	for _, id := range []string{idA, idB} {
+		seedTrack(t, env.lib, library.Track{
+			VideoID: id, Title: "Intro", DurationSec: 10,
+			ThumbnailURL: "http://example.invalid/x.jpg",
+			SourceURL:    "https://www.youtube.com/watch?v=" + id,
+			ImportedAt:   1,
+		})
+		resp, err := http.Get(env.server.URL + "/audio/" + id)
+		if err != nil {
+			t.Fatalf("Get %s: %v", id, err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+
+	pathA := filepath.Join(dlDir, library.AudioFilename("Intro", idA, "opus"))
+	pathB := filepath.Join(dlDir, library.AudioFilename("Intro", idB, "opus"))
+	for _, p := range []string{pathA, pathB} {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read %q: %v", p, err)
+		}
+		if string(raw) != payload {
+			t.Errorf("on-disk bytes for %q: got %q, want %q", p, raw, payload)
+		}
+	}
+
+	trackA, _ := env.lib.GetTrack(idA)
+	trackB, _ := env.lib.GetTrack(idB)
+	if trackA.AudioPath != pathA {
+		t.Errorf("track A audio_path: got %q, want %q", trackA.AudioPath, pathA)
+	}
+	if trackB.AudioPath != pathB {
+		t.Errorf("track B audio_path: got %q, want %q", trackB.AudioPath, pathB)
+	}
+	if trackA.AudioPath == trackB.AudioPath {
+		t.Errorf("same-title different-id tracks share audio_path %q: collision not resolved", trackA.AudioPath)
 	}
 }
 

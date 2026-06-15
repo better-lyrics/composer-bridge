@@ -199,7 +199,7 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	capture := h.openAutoDownloadCapture(videoID, track, format)
 	var streamW io.Writer = tw
 	if capture != nil {
-		streamW = io.MultiWriter(tw, capture.file)
+		streamW = io.MultiWriter(tw, capture.sink)
 	}
 	streamCtx, cancel := context.WithTimeout(r.Context(), audioStreamTTL)
 	defer cancel()
@@ -229,14 +229,39 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 }
 
 // autoDownloadCapture is the per-request state for tee-while-streaming. Lives
-// for the duration of one Audio call: file is the open .part handle that the
+// for the duration of one Audio call: sink owns the open .part handle the
 // io.MultiWriter writes through alongside the HTTP response; finalPath is the
 // stable path the .part is renamed onto when yt-dlp exits clean. Callers go
 // through openAutoDownloadCapture so the nil-capture short circuit stays in
 // one place.
 type autoDownloadCapture struct {
-	file      *os.File
+	sink      *safeCacheWriter
 	finalPath string
+}
+
+// safeCacheWriter wraps the .part *os.File so a write error on the cache leg
+// never propagates out of io.MultiWriter and kills the live audio stream the
+// client is consuming. On first failure it closes the file, removes the temp
+// path, and marks itself poisoned; subsequent writes silently no-op so yt-dlp
+// keeps streaming to the HTTP response. finalize/discard inspect the poisoned
+// flag to skip persistence work.
+type safeCacheWriter struct {
+	file     *os.File
+	poisoned bool
+}
+
+func (s *safeCacheWriter) Write(p []byte) (int, error) {
+	if s.poisoned {
+		return len(p), nil
+	}
+	n, err := s.file.Write(p)
+	if err != nil {
+		s.poisoned = true
+		_ = s.file.Close()
+		_ = os.Remove(s.file.Name())
+		return len(p), nil
+	}
+	return n, nil
 }
 
 // openAutoDownloadCapture returns a capture handle when auto-download is on,
@@ -259,29 +284,34 @@ func (h *Handlers) openAutoDownloadCapture(videoID string, track *library.Track,
 		slog.Warn("autodl: mkdir download dir failed", "videoID", videoID, "path", root, "err", err)
 		return nil
 	}
-	base := sanitizeAudioFilename(track.Title) + "." + ytdlp.FormatExtension(format)
+	base := library.AudioFilename(track.Title, videoID, ytdlp.FormatExtension(format))
 	part, err := os.CreateTemp(root, base+".*.part")
 	if err != nil {
 		slog.Warn("autodl: create part file failed", "videoID", videoID, "err", err)
 		return nil
 	}
-	return &autoDownloadCapture{file: part, finalPath: filepath.Join(root, base)}
+	return &autoDownloadCapture{sink: &safeCacheWriter{file: part}, finalPath: filepath.Join(root, base)}
 }
 
 // finalize closes the .part file, renames it onto the stable filename, stats
 // the result to learn the on-disk size, marks the library row, and emits a
 // library:update so any open Library view refreshes. Failures here are logged
 // and swallowed: the audio response has already streamed successfully, and a
-// failure to persist must not corrupt the client's view of the request.
+// failure to persist must not corrupt the client's view of the request. If
+// the cache leg was poisoned mid-stream the sink already cleaned up, so the
+// whole call short-circuits without touching disk or the library row.
 func (c *autoDownloadCapture) finalize(videoID string, h *Handlers) {
-	if err := c.file.Close(); err != nil {
-		slog.Warn("autodl: close part failed", "videoID", videoID, "err", err)
-		os.Remove(c.file.Name())
+	if c.sink.poisoned {
 		return
 	}
-	if err := os.Rename(c.file.Name(), c.finalPath); err != nil {
-		slog.Warn("autodl: rename part failed", "videoID", videoID, "tmp", c.file.Name(), "dest", c.finalPath, "err", err)
-		os.Remove(c.file.Name())
+	if err := c.sink.file.Close(); err != nil {
+		slog.Warn("autodl: close part failed", "videoID", videoID, "err", err)
+		os.Remove(c.sink.file.Name())
+		return
+	}
+	if err := os.Rename(c.sink.file.Name(), c.finalPath); err != nil {
+		slog.Warn("autodl: rename part failed", "videoID", videoID, "tmp", c.sink.file.Name(), "dest", c.finalPath, "err", err)
+		os.Remove(c.sink.file.Name())
 		return
 	}
 	info, err := os.Stat(c.finalPath)
@@ -298,28 +328,14 @@ func (c *autoDownloadCapture) finalize(videoID string, h *Handlers) {
 
 // discard closes and removes the .part file. Used on every failure path so a
 // half-written cache never lingers under DownloadDir where the next request
-// would otherwise pick it up as a valid cache hit.
+// would otherwise pick it up as a valid cache hit. A poisoned sink already
+// cleaned up, so the call is a no-op in that case.
 func (c *autoDownloadCapture) discard() {
-	_ = c.file.Close()
-	_ = os.Remove(c.file.Name())
-}
-
-// sanitizeAudioFilename strips characters that would break a filename on any
-// supported OS and trims to a sensible length. Duplicated from app.go on
-// purpose: cross-package shared helpers in internal packages get hard to find
-// quickly, and this is a small enough function that one canonical sanitiser
-// per call site is fine.
-func sanitizeAudioFilename(name string) string {
-	if name == "" {
-		return "track"
+	if c.sink.poisoned {
+		return
 	}
-	repl := strings.NewReplacer("/", "-", "\\", "-", ":", "-", "*", "-",
-		"?", "-", "\"", "-", "<", "-", ">", "-", "|", "-")
-	out := repl.Replace(name)
-	if len(out) > 120 {
-		out = out[:120]
-	}
-	return out
+	_ = c.sink.file.Close()
+	_ = os.Remove(c.sink.file.Name())
 }
 
 // writeAudioHeaders writes the headers shared between the cache-hit and
