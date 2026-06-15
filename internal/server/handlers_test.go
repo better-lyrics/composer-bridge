@@ -1471,7 +1471,7 @@ func TestSafeCacheWriter_WriteErrorSwallowedAndCleansUp(t *testing.T) {
 	// Subsequent writes also swallow and report success.
 	n, err = s.Write(payload)
 	if err != nil || n != len(payload) {
-		t.Fatalf("post-poison Write: n=%d err=%v, want %d, nil", n, len(payload), err)
+		t.Fatalf("post-poison Write: n=%d err=%v, want n=%d err=nil", n, err, len(payload))
 	}
 }
 
