@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"runtime"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/energye/systray"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -47,7 +49,12 @@ type Controller struct {
 	recentDownloads func() []RecentEntry
 	state           *bridgestate.Holder
 	unsubState      func()
+	pulseRunning    atomic.Bool
 }
+
+// pulseInterval is the cadence of the downloading-state pulse: long enough
+// that the alternation reads as a heartbeat rather than a flicker.
+const pulseInterval = 600 * time.Millisecond
 
 // New builds an unbound Controller. Call Register before wails.Run to install
 // the callbacks, then BindContext + Start from OnStartup once Wails has handed
@@ -234,6 +241,7 @@ func (c *Controller) onReady() {
 		snap := holder.Snapshot()
 		applyState(mState, mServer, snap)
 		applyUpdateRow(mUpdate, snap)
+		c.maybeStartPulse(snap, isMac)
 		unsub := holder.OnChange(func(s bridgestate.State) {
 			// systray's SetTitle/Check/SetTemplateIcon internally call
 			// performSelectorOnMainThread:waitUntilDone:YES. If this
@@ -245,6 +253,7 @@ func (c *Controller) onReady() {
 				applyState(mState, mServer, s)
 				applyUpdateRow(mUpdate, s)
 				applyTrayIcon(s, isMac)
+				c.maybeStartPulse(s, isMac)
 			}()
 		})
 		c.mu.Lock()
@@ -366,6 +375,63 @@ func pickTrayIcon(s bridgestate.State, isMac bool) (template, regular []byte) {
 // everywhere else.
 func applyTrayIcon(s bridgestate.State, isMac bool) {
 	tmpl, reg := pickTrayIcon(s, isMac)
+	if isMac {
+		systray.SetTemplateIcon(tmpl, tmpl)
+		return
+	}
+	systray.SetIcon(reg)
+}
+
+// maybeStartPulse kicks the downloading-state pulse goroutine if the snapshot
+// shows an active download and no pulse is already running. The goroutine
+// self-exits when the download leaves DownloadActive, so callers do not need
+// to track or signal it on the way out.
+func (c *Controller) maybeStartPulse(s bridgestate.State, isMac bool) {
+	if !isPulseState(s) {
+		return
+	}
+	if !c.pulseRunning.CompareAndSwap(false, true) {
+		return
+	}
+	go c.runPulse(isMac)
+}
+
+// runPulse alternates between the full and dim downloading variants every
+// pulseInterval. It re-reads the live state on every tick instead of trusting
+// the snapshot it was launched with, so a state change that races with the
+// ticker cleanly stops the pulse and pushes the correct non-pulsing icon
+// before the goroutine exits.
+func (c *Controller) runPulse(isMac bool) {
+	defer c.pulseRunning.Store(false)
+	tick := time.NewTicker(pulseInterval)
+	defer tick.Stop()
+	dim := true
+	for range tick.C {
+		holder := c.stateHolder()
+		if holder == nil {
+			return
+		}
+		s := holder.Snapshot()
+		if !isPulseState(s) {
+			applyTrayIcon(s, isMac)
+			return
+		}
+		setDownloadingFrame(dim, isMac)
+		dim = !dim
+	}
+}
+
+func isPulseState(s bridgestate.State) bool {
+	return s.Server == bridgestate.ServerRunning && s.Download == bridgestate.DownloadActive
+}
+
+func setDownloadingFrame(dim bool, isMac bool) {
+	var tmpl, reg []byte
+	if dim {
+		tmpl, reg = icons.MacDownloadingDim, icons.DefaultDownloadingDim
+	} else {
+		tmpl, reg = icons.MacDownloading, icons.DefaultDownloading
+	}
 	if isMac {
 		systray.SetTemplateIcon(tmpl, tmpl)
 		return

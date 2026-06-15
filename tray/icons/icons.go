@@ -25,6 +25,9 @@ var MacIdle []byte
 //go:embed tray-mac-downloading.png
 var MacDownloading []byte
 
+//go:embed tray-mac-downloading-dim.png
+var MacDownloadingDim []byte
+
 //go:embed tray-mac-error.png
 var MacError []byte
 
@@ -39,6 +42,9 @@ var DefaultIdle []byte
 
 //go:embed tray-default-downloading.png
 var DefaultDownloading []byte
+
+//go:embed tray-default-downloading-dim.png
+var DefaultDownloadingDim []byte
 
 //go:embed tray-default-error.png
 var DefaultError []byte
