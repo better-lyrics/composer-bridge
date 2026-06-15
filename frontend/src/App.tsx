@@ -1,6 +1,7 @@
 import { domAnimation, LazyMotion } from "motion/react";
 import { Sidebar } from "@/components/sidebar";
 import { UpdateBanner } from "@/components/update-banner";
+import { useActivityStream } from "@/hooks/use-activity-stream";
 import { useBridgeStatus } from "@/hooks/use-bridge-status";
 import { useUpdateInfo } from "@/hooks/use-update-info";
 import { useUIStore, type View } from "@/stores/ui-store";
@@ -18,6 +19,7 @@ const App: React.FC = () => {
   const view = useUIStore((s) => s.view);
   const ActiveView = VIEWS[view];
   useBridgeStatus();
+  useActivityStream();
   const { showBanner } = useUpdateInfo();
 
   return (
