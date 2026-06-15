@@ -54,14 +54,17 @@ type Controller struct {
 }
 
 // pulseInterval is the cadence of the downloading-state pulse: long enough
-// that the alternation reads as a heartbeat rather than a flicker.
-const pulseInterval = 600 * time.Millisecond
+// that the alternation reads as a heartbeat rather than a flicker. Declared
+// as var so tests can shrink it without forcing a real-time sleep.
+var pulseInterval = 600 * time.Millisecond
 
 // Labels for the update menu item. Default is the macOS "..." convention for
 // "this opens a dialog" since the click goes through to the in-window banner.
 const (
-	updateRowDefaultLabel = "Check for updates..."
-	updateRowInstallLabel = "Install update..."
+	updateRowDefaultLabel   = "Check for updates..."
+	updateRowDefaultTooltip = "Check for a newer release"
+	updateRowInstallLabel   = "Install update..."
+	updateRowInstallTooltip = "Open the window to install the new release"
 )
 
 // New builds an unbound Controller. Call Register before wails.Run to install
@@ -234,7 +237,7 @@ func (c *Controller) onReady() {
 	applyItemIcon(mRecent, icons.MenuClock)
 	c.populateRecentSubmenu(mRecent)
 
-	mUpdate := systray.AddMenuItem(updateRowDefaultLabel, "Check for a newer release")
+	mUpdate := systray.AddMenuItem(updateRowDefaultLabel, updateRowDefaultTooltip)
 	applyItemIcon(mUpdate, icons.MenuCloudDownload)
 
 	systray.AddSeparator()
@@ -263,7 +266,7 @@ func (c *Controller) onReady() {
 	if holder := c.stateHolder(); holder != nil {
 		snap := holder.Snapshot()
 		applyState(mState, mServer, snap)
-		applyUpdateRow(mUpdate, snap)
+		setUpdateRowLabel(mUpdate, snap)
 		c.maybeStartPulse(snap, isMac)
 		unsub := holder.OnChange(func(s bridgestate.State) {
 			// systray's SetTitle/Check/SetTemplateIcon internally call
@@ -274,7 +277,7 @@ func (c *Controller) onReady() {
 			// mutation in a goroutine so we are not on main.
 			go func() {
 				applyState(mState, mServer, s)
-				applyUpdateRow(mUpdate, s)
+				setUpdateRowLabel(mUpdate, s)
 				applyTrayIcon(s, isMac)
 				c.maybeStartPulse(s, isMac)
 			}()
@@ -506,15 +509,23 @@ func applyState(stateItem, serverItem *systray.MenuItem, s bridgestate.State) {
 	}
 }
 
-// applyUpdateRow swaps the update row between "Check for updates..." (idle)
-// and "Install update..." (a release is stashed). The row is always visible;
-// the label tells the user which click action they are about to trigger.
-func applyUpdateRow(item *systray.MenuItem, s bridgestate.State) {
+// renderUpdateRowLabel maps a state snapshot to the label + tooltip pair the
+// update menu row should display. Pure so it can be unit-tested without
+// touching systray.
+func renderUpdateRowLabel(s bridgestate.State) (title, tooltip string) {
 	if s.UpdatePending {
-		item.SetTitle(updateRowInstallLabel)
-		return
+		return updateRowInstallLabel, updateRowInstallTooltip
 	}
-	item.SetTitle(updateRowDefaultLabel)
+	return updateRowDefaultLabel, updateRowDefaultTooltip
+}
+
+// setUpdateRowLabel pushes the rendered label + tooltip into the menu item.
+// Always visible; the label tells the user which click action they are about
+// to trigger.
+func setUpdateRowLabel(item *systray.MenuItem, s bridgestate.State) {
+	title, tooltip := renderUpdateRowLabel(s)
+	item.SetTitle(title)
+	item.SetTooltip(tooltip)
 }
 
 func renderStateTitle(s bridgestate.State) string {
