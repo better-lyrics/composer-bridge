@@ -203,6 +203,10 @@ func (c *Controller) onReady() {
 	applyItemIcon(mRecent, icons.MenuClock)
 	c.populateRecentSubmenu(mRecent)
 
+	mUpdate := systray.AddMenuItem("Update available", "Install the new release")
+	applyItemIcon(mUpdate, icons.MenuWindow)
+	mUpdate.Hide()
+
 	systray.AddSeparator()
 
 	mServer := systray.AddMenuItemCheckbox("Bridge server", "Toggle the local HTTP bridge", false)
@@ -223,10 +227,13 @@ func (c *Controller) onReady() {
 	mShow.Click(func() { go c.showWindow() })
 	mSettings.Click(func() { go c.showWindow() })
 	mServer.Click(func() { go c.toggleServer(mServer) })
+	mUpdate.Click(func() { go c.showWindow() })
 	mQuit.Click(func() { go c.quitApp() })
 
 	if holder := c.stateHolder(); holder != nil {
-		applyState(mState, mServer, holder.Snapshot())
+		snap := holder.Snapshot()
+		applyState(mState, mServer, snap)
+		applyUpdateRow(mUpdate, snap)
 		unsub := holder.OnChange(func(s bridgestate.State) {
 			// systray's SetTitle/Check/SetTemplateIcon internally call
 			// performSelectorOnMainThread:waitUntilDone:YES. If this
@@ -236,6 +243,7 @@ func (c *Controller) onReady() {
 			// mutation in a goroutine so we are not on main.
 			go func() {
 				applyState(mState, mServer, s)
+				applyUpdateRow(mUpdate, s)
 				applyTrayIcon(s, isMac)
 			}()
 		})
@@ -328,9 +336,11 @@ func (c *Controller) onExit() {}
 // pickTrayIcon maps a bridgestate snapshot to the matching tray-bar variant.
 // Stopped/Starting/Stopping all resolve to the dimmed variant regardless of
 // download state. While running, an active download wins over a sticky
-// LastError so the badge reflects what's happening NOW. Returns the mac
-// template bytes plus the colored default bytes; callers pick which to push
-// based on platform.
+// LastError so the badge reflects what's happening NOW. UpdatePending sits
+// below those: a pending release is sticky-but-not-urgent and must never
+// mask an active download or fresh error. Returns the mac template bytes
+// plus the colored default bytes; callers pick which to push based on
+// platform.
 func pickTrayIcon(s bridgestate.State, isMac bool) (template, regular []byte) {
 	var tmpl, reg []byte
 	switch {
@@ -340,6 +350,8 @@ func pickTrayIcon(s bridgestate.State, isMac bool) (template, regular []byte) {
 		tmpl, reg = icons.MacDownloading, icons.DefaultDownloading
 	case s.LastError != "" && s.Download == bridgestate.DownloadIdle:
 		tmpl, reg = icons.MacError, icons.DefaultError
+	case s.UpdatePending:
+		tmpl, reg = icons.MacUpdate, icons.DefaultUpdate
 	default:
 		tmpl, reg = icons.MacIdle, icons.DefaultIdle
 	}
@@ -384,6 +396,16 @@ func applyState(stateItem, serverItem *systray.MenuItem, s bridgestate.State) {
 	} else {
 		serverItem.Uncheck()
 	}
+}
+
+// applyUpdateRow toggles the visibility of the "Update available" menu item
+// so it appears only when an update has been discovered.
+func applyUpdateRow(item *systray.MenuItem, s bridgestate.State) {
+	if s.UpdatePending {
+		item.Show()
+		return
+	}
+	item.Hide()
 }
 
 func renderStateTitle(s bridgestate.State) string {

@@ -31,6 +31,7 @@ type State struct {
 	Download        DownloadStatus `json:"download"`
 	DownloadVideoID string         `json:"downloadVideoId"`
 	LastError       string         `json:"lastError"`
+	UpdatePending   bool           `json:"updatePending"`
 }
 
 // Holder guards a State with an RWMutex and a separate Mutex for the
@@ -94,6 +95,22 @@ func (h *Holder) EndDownload(errMsg string) {
 	if errMsg != "" {
 		h.state.LastError = errMsg
 	}
+	snap := h.state
+	h.mu.Unlock()
+	h.notify(snap)
+}
+
+// SetUpdatePending flags whether a newer release is sitting in the stash
+// waiting for the user to install. The tray reads this to swap to the
+// update-pending icon variant; the updater package owns the actual
+// install action. Idempotent: a no-op set does not fire subscribers.
+func (h *Holder) SetUpdatePending(pending bool) {
+	h.mu.Lock()
+	if h.state.UpdatePending == pending {
+		h.mu.Unlock()
+		return
+	}
+	h.state.UpdatePending = pending
 	snap := h.state
 	h.mu.Unlock()
 	h.notify(snap)

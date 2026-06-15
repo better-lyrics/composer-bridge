@@ -285,6 +285,9 @@ func (a *App) CheckForUpdates() (*updater.UpdateInfo, error) {
 		return nil, err
 	}
 	a.SetLatestUpdate(info)
+	if a.state != nil && info != nil {
+		a.state.SetUpdatePending(info.Available)
+	}
 	if appCtx := a.Ctx(); appCtx != nil {
 		wailsRuntime.EventsEmit(appCtx, "bridge:update-available", info)
 	}

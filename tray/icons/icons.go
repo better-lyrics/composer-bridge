@@ -9,12 +9,15 @@ var Mac []byte
 //go:embed icon.png
 var Default []byte
 
-// Per-state tray-bar variants. Mac variants are 44x44 monochrome templates
-// (alpha-only, opaque black) so macOS tints them per appearance. Default
-// variants are 44x44 colored PNGs for non-mac platforms. Idle is the plain
-// silhouette; Downloading and Error add a small filled badge dot in the
-// lower-right corner; Stopped multiplies alpha by 0.4 so the glyph dims.
-// Regenerate via `go run ./internal/cmd/tray-icon-gen`.
+// Per-state tray-bar variants. Mac variants are 256x256 monochrome templates
+// (opaque black on transparent, state glyph as a transparent cutout from the
+// inner disc) so macOS tints them per appearance and template-mode shows
+// the state through the cutout. Default variants are 256x256 colored PNGs
+// for non-mac platforms. Each state uses a distinct silhouette so the icon
+// reads at any menu-bar background. Source SVGs live in iconset/; regenerate
+// by re-exporting from there with rsvg-convert at 256x256 (mono SVGs need
+// fill="white" swapped to fill="black" before render so the template path
+// embeds opaque black bytes).
 
 //go:embed tray-mac-idle.png
 var MacIdle []byte
@@ -28,6 +31,9 @@ var MacError []byte
 //go:embed tray-mac-stopped.png
 var MacStopped []byte
 
+//go:embed tray-mac-update.png
+var MacUpdate []byte
+
 //go:embed tray-default-idle.png
 var DefaultIdle []byte
 
@@ -39,6 +45,9 @@ var DefaultError []byte
 
 //go:embed tray-default-stopped.png
 var DefaultStopped []byte
+
+//go:embed tray-default-update.png
+var DefaultUpdate []byte
 
 // Menu glyphs (16x16 monochrome) rendered next to each tray menu item.
 

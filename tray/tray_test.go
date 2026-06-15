@@ -60,10 +60,14 @@ func TestPickTrayIcon_PicksVariantPerState(t *testing.T) {
 		{"mac starting (dim)", bridgestate.State{Server: bridgestate.ServerStarting}, icons.MacStopped, true},
 		{"mac stopping (dim)", bridgestate.State{Server: bridgestate.ServerStopping}, icons.MacStopped, true},
 		{"mac downloading wins over last error", bridgestate.State{Server: bridgestate.ServerRunning, Download: bridgestate.DownloadActive, LastError: "old err"}, icons.MacDownloading, true},
+		{"mac update pending", bridgestate.State{Server: bridgestate.ServerRunning, Download: bridgestate.DownloadIdle, UpdatePending: true}, icons.MacUpdate, true},
+		{"mac downloading wins over update pending", bridgestate.State{Server: bridgestate.ServerRunning, Download: bridgestate.DownloadActive, UpdatePending: true}, icons.MacDownloading, true},
+		{"mac error wins over update pending", bridgestate.State{Server: bridgestate.ServerRunning, Download: bridgestate.DownloadIdle, LastError: "boom", UpdatePending: true}, icons.MacError, true},
 		{"default stopped", bridgestate.State{Server: bridgestate.ServerStopped}, icons.DefaultStopped, false},
 		{"default running idle", bridgestate.State{Server: bridgestate.ServerRunning, Download: bridgestate.DownloadIdle}, icons.DefaultIdle, false},
 		{"default downloading", bridgestate.State{Server: bridgestate.ServerRunning, Download: bridgestate.DownloadActive}, icons.DefaultDownloading, false},
 		{"default running with last error", bridgestate.State{Server: bridgestate.ServerRunning, Download: bridgestate.DownloadIdle, LastError: "yt-dlp exit 1"}, icons.DefaultError, false},
+		{"default update pending", bridgestate.State{Server: bridgestate.ServerRunning, Download: bridgestate.DownloadIdle, UpdatePending: true}, icons.DefaultUpdate, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

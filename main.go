@@ -182,6 +182,7 @@ func main() {
 	go updater.PollDaily(bgCtx, manifestURL, Version, func(info updater.UpdateInfo) {
 		slog.Info("bridge update available", "version", info.Latest, "current", info.Current)
 		a.SetLatestUpdate(&info)
+		holder.SetUpdatePending(true)
 		if appCtx := a.Ctx(); appCtx != nil {
 			wailsRuntime.EventsEmit(appCtx, "bridge:update-available", info)
 		}
