@@ -3,6 +3,7 @@ import { LibrarySize, ThumbCacheSize } from "../../../../wailsjs/go/app/App";
 import type { config } from "../../../../wailsjs/go/models";
 import { SettingRow } from "@/components/setting-row";
 import { TextInput } from "@/components/text-input";
+import { Toggle } from "@/components/toggle";
 
 // -- Interfaces ---------------------------------------------------------------
 
@@ -72,6 +73,16 @@ const StorageSection: React.FC<StorageSectionProps> = ({ config, update }) => {
             mono
             ariaLabel="Download location"
             className="w-56"
+          />
+        </SettingRow>
+        <SettingRow
+          label="Auto-download to library"
+          description="Save every track Composer plays to the library, then serve it from disk on replays. One yt-dlp run per song instead of two."
+        >
+          <Toggle
+            checked={config.auto_download_to_library}
+            onChange={(v) => update("auto_download_to_library", v)}
+            ariaLabel="Auto-download to library"
           />
         </SettingRow>
       </div>

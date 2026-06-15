@@ -1301,6 +1301,142 @@ func TestAudio_CacheHit_ConcurrentRequestsRespondUnderDeadline(t *testing.T) {
 	}
 }
 
+// -- Audio auto-download to library --------------------------------------------
+
+// seedTrackForAutoDL writes a library row for videoID with the given title and
+// no AudioPath set, configures env.handlers.DownloadDir + AudioFormat + the
+// AutoDownload callback, and returns the configured download directory. Helper
+// exists because every auto-download test wants the same three-step setup.
+func seedTrackForAutoDL(t *testing.T, env *testEnv, videoID, title, format string, enabled bool) string {
+	t.Helper()
+	dlDir := filepath.Join(t.TempDir(), "downloads")
+	env.handlers.DownloadDir = func() string { return dlDir }
+	env.handlers.AutoDownload = func() bool { return enabled }
+	env.handlers.AudioFormat = format
+	seedTrack(t, env.lib, library.Track{
+		VideoID: videoID, Title: title, DurationSec: 10,
+		ThumbnailURL: "http://example.invalid/x.jpg",
+		SourceURL:    "https://www.youtube.com/watch?v=" + videoID,
+		ImportedAt:   1,
+	})
+	return dlDir
+}
+
+func TestAudio_AutoDownload_TeeStreamWritesFileAndMarksLibrary(t *testing.T) {
+	const payload = "tee-stream payload bytes"
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'tee-stream payload bytes'`))
+	dlDir := seedTrackForAutoDL(t, env, "RgKAFK5djSk", "Hello World", "opus", true)
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status: got %d, want 200", resp.StatusCode)
+	}
+	if string(body) != payload {
+		t.Errorf("client body: got %q, want %q", body, payload)
+	}
+
+	wantPath := filepath.Join(dlDir, "Hello World.opus")
+	raw, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("read saved file %q: %v", wantPath, err)
+	}
+	if string(raw) != payload {
+		t.Errorf("on-disk bytes: got %q, want %q", raw, payload)
+	}
+
+	got, err := env.lib.GetTrack("RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("GetTrack: %v", err)
+	}
+	if got.AudioPath != wantPath {
+		t.Errorf("AudioPath: got %q, want %q", got.AudioPath, wantPath)
+	}
+	if got.AudioSize != int64(len(payload)) {
+		t.Errorf("AudioSize: got %d, want %d", got.AudioSize, len(payload))
+	}
+
+	entries, _ := os.ReadDir(dlDir)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".part") {
+			t.Errorf("temp .part file leaked: %s", e.Name())
+		}
+	}
+}
+
+func TestAudio_AutoDownload_MidStreamFailureCleansPartAndLeavesLibraryEmpty(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'partial'; exit 1`))
+	dlDir := seedTrackForAutoDL(t, env, "RgKAFK5djSk", "Broken", "opus", true)
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+
+	finalPath := filepath.Join(dlDir, "Broken.opus")
+	if _, err := os.Stat(finalPath); !os.IsNotExist(err) {
+		t.Errorf("final audio file %q exists after failed yt-dlp run; auto-download must roll back on failure", finalPath)
+	}
+	entries, err := os.ReadDir(dlDir)
+	if err == nil {
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".part") {
+				t.Errorf(".part file leaked after failure: %s", e.Name())
+			}
+		}
+	}
+
+	got, err := env.lib.GetTrack("RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("GetTrack: %v", err)
+	}
+	if got.AudioPath != "" {
+		t.Errorf("AudioPath: got %q, want empty (failed download must NOT mark library)", got.AudioPath)
+	}
+	if got.AudioSize != 0 {
+		t.Errorf("AudioSize: got %d, want 0", got.AudioSize)
+	}
+}
+
+func TestAudio_AutoDownload_DisabledLeavesNoFile(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'streamed payload'`))
+	dlDir := seedTrackForAutoDL(t, env, "RgKAFK5djSk", "x", "opus", false)
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if string(body) != "streamed payload" {
+		t.Errorf("body: got %q, want streamed payload", body)
+	}
+
+	entries, err := os.ReadDir(dlDir)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("download dir not empty with auto-download off: %d entries", len(entries))
+	}
+
+	got, err := env.lib.GetTrack("RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("GetTrack: %v", err)
+	}
+	if got.AudioPath != "" {
+		t.Errorf("AudioPath: got %q, want empty (auto-download off must not mutate library)", got.AudioPath)
+	}
+}
+
 // -- Debug endpoints -----------------------------------------------------------
 
 func TestDebugGoroutines_ReturnsStackDump(t *testing.T) {

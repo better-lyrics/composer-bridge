@@ -1,12 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { RecentActivity } from "../../wailsjs/go/app/App";
 import type { activity } from "../../wailsjs/go/models";
-import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { useUIStore } from "@/stores/ui-store";
-
-// -- Constants ----------------------------------------------------------------
-
-const EVENT_NAME = "activity:update";
 
 // -- Public -------------------------------------------------------------------
 
@@ -17,13 +12,17 @@ interface UseActivityResult {
   error: Error | null;
 }
 
+// useActivity exposes the most recent `limit` activity rows to the Activity
+// view. Reads from the shared store so live events captured by
+// useActivityStream (mounted at the App root) are visible immediately; the
+// initial RecentActivity fetch backfills history on first mount and on limit
+// changes so the SQLite snapshot wins when it differs from the in-memory
+// buffer.
 export function useActivity(limit: number): UseActivityResult {
   const entries = useUIStore((s) => s.activityEntries);
   const setEntries = useUIStore((s) => s.setActivityEntries);
   const [loading, setLoading] = useState(entries === null);
   const [error, setError] = useState<Error | null>(null);
-  const limitRef = useRef(limit);
-  limitRef.current = limit;
 
   useEffect(() => {
     let cancelled = false;
@@ -46,25 +45,10 @@ export function useActivity(limit: number): UseActivityResult {
     };
   }, [limit, setEntries]);
 
-  useEffect(() => {
-    const handler = (entry: activity.Entry) => {
-      const prev = useUIStore.getState().activityEntries ?? [];
-      const next = [entry, ...prev.filter((e) => e.id !== entry.id)].slice(0, limitRef.current);
-      setEntries(next);
-    };
-    let off: (() => void) | undefined;
-    try {
-      off = EventsOn(EVENT_NAME, handler);
-    } catch (err) {
-      console.error("EventsOn failed", err);
-    }
-    return () => {
-      if (off) off();
-    };
-  }, [setEntries]);
+  const limited = useMemo(() => (entries ?? []).slice(0, limit), [entries, limit]);
 
   return {
-    entries: entries ?? [],
+    entries: entries === null ? [] : limited,
     loaded: entries !== null,
     loading,
     error,
