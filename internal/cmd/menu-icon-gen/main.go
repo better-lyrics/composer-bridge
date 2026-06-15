@@ -41,6 +41,7 @@ func main() {
 		{src: "svg/settings.svg", out: "tray/icons/menu/gear.png"},
 		{src: "svg/x.svg", out: "tray/icons/menu/x.png"},
 		{src: "svg/point-filled.svg", out: "tray/icons/menu/dot.png"},
+		{src: "svg/cloud-download.svg", out: "tray/icons/menu/cloud-download.png"},
 	}
 	for _, ic := range icons {
 		must(render(ic.src, ic.out))

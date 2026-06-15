@@ -39,22 +39,30 @@ const recentSubmenuLimit = 5
 // onStopServer drive the Bridge server toggle. recentDownloads supplies the
 // submenu entries. state is the bridgestate Holder used for live updates.
 type Controller struct {
-	mu              sync.Mutex
-	ctx             context.Context
-	start           func()
-	end             func()
-	onQuit          func()
-	onStartServer   func() error
-	onStopServer    func() error
-	recentDownloads func() []RecentEntry
-	state           *bridgestate.Holder
-	unsubState      func()
-	pulseRunning    atomic.Bool
+	mu                sync.Mutex
+	ctx               context.Context
+	start             func()
+	end               func()
+	onQuit            func()
+	onStartServer     func() error
+	onStopServer      func() error
+	onCheckForUpdates func() error
+	recentDownloads   func() []RecentEntry
+	state             *bridgestate.Holder
+	unsubState        func()
+	pulseRunning      atomic.Bool
 }
 
 // pulseInterval is the cadence of the downloading-state pulse: long enough
 // that the alternation reads as a heartbeat rather than a flicker.
 const pulseInterval = 600 * time.Millisecond
+
+// Labels for the update menu item. Default is the macOS "..." convention for
+// "this opens a dialog" since the click goes through to the in-window banner.
+const (
+	updateRowDefaultLabel = "Check for updates..."
+	updateRowInstallLabel = "Install update..."
+)
 
 // New builds an unbound Controller. Call Register before wails.Run to install
 // the callbacks, then BindContext + Start from OnStartup once Wails has handed
@@ -102,6 +110,16 @@ func (c *Controller) SetOnStopServer(fn func() error) {
 	c.mu.Unlock()
 }
 
+// SetOnCheckForUpdates installs the callback the update menu item invokes
+// when no update is currently stashed. main.go wires it to App.CheckForUpdates
+// so the tray can trigger a one-shot manifest fetch without dragging the App
+// type into this package.
+func (c *Controller) SetOnCheckForUpdates(fn func() error) {
+	c.mu.Lock()
+	c.onCheckForUpdates = fn
+	c.mu.Unlock()
+}
+
 // SetRecentDownloads installs a callback that returns the most recent audio
 // download entries (newest first). The tray reads it lazily each time the
 // menu opens; main.go converts from internal/activity to avoid a tray ->
@@ -134,6 +152,12 @@ func (c *Controller) recentDownloadsCallback() func() []RecentEntry {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.recentDownloads
+}
+
+func (c *Controller) checkForUpdatesCallback() func() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.onCheckForUpdates
 }
 
 func (c *Controller) stateHolder() *bridgestate.Holder {
@@ -210,9 +234,8 @@ func (c *Controller) onReady() {
 	applyItemIcon(mRecent, icons.MenuClock)
 	c.populateRecentSubmenu(mRecent)
 
-	mUpdate := systray.AddMenuItem("Update available", "Install the new release")
-	applyItemIcon(mUpdate, icons.MenuWindow)
-	mUpdate.Hide()
+	mUpdate := systray.AddMenuItem(updateRowDefaultLabel, "Check for a newer release")
+	applyItemIcon(mUpdate, icons.MenuCloudDownload)
 
 	systray.AddSeparator()
 
@@ -234,7 +257,7 @@ func (c *Controller) onReady() {
 	mShow.Click(func() { go c.showWindow() })
 	mSettings.Click(func() { go c.showWindow() })
 	mServer.Click(func() { go c.toggleServer(mServer) })
-	mUpdate.Click(func() { go c.showWindow() })
+	mUpdate.Click(func() { go c.handleUpdateMenuClick() })
 	mQuit.Click(func() { go c.quitApp() })
 
 	if holder := c.stateHolder(); holder != nil {
@@ -315,6 +338,25 @@ func (c *Controller) toggleServer(item *systray.MenuItem) {
 		if err := fn(); err != nil {
 			slog.Warn("tray start server failed", "err", err)
 		}
+	}
+}
+
+// handleUpdateMenuClick branches on whether an update is currently stashed.
+// When one is pending the window opens so the in-window UpdateBanner can take
+// over the install flow; otherwise the registered OnCheckForUpdates callback
+// runs a fresh manifest fetch. A discovered update flips bridgestate, which
+// in turn relabels this same menu item on the next OnChange tick.
+func (c *Controller) handleUpdateMenuClick() {
+	if holder := c.stateHolder(); holder != nil && holder.Snapshot().UpdatePending {
+		c.showWindow()
+		return
+	}
+	fn := c.checkForUpdatesCallback()
+	if fn == nil {
+		return
+	}
+	if err := fn(); err != nil {
+		slog.Warn("tray check for updates failed", "err", err)
 	}
 }
 
@@ -464,14 +506,15 @@ func applyState(stateItem, serverItem *systray.MenuItem, s bridgestate.State) {
 	}
 }
 
-// applyUpdateRow toggles the visibility of the "Update available" menu item
-// so it appears only when an update has been discovered.
+// applyUpdateRow swaps the update row between "Check for updates..." (idle)
+// and "Install update..." (a release is stashed). The row is always visible;
+// the label tells the user which click action they are about to trigger.
 func applyUpdateRow(item *systray.MenuItem, s bridgestate.State) {
 	if s.UpdatePending {
-		item.Show()
+		item.SetTitle(updateRowInstallLabel)
 		return
 	}
-	item.Hide()
+	item.SetTitle(updateRowDefaultLabel)
 }
 
 func renderStateTitle(s bridgestate.State) string {

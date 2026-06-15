@@ -216,6 +216,10 @@ func main() {
 	trayCtrl.SetState(holder)
 	trayCtrl.SetOnStartServer(a.StartServer)
 	trayCtrl.SetOnStopServer(a.StopServer)
+	trayCtrl.SetOnCheckForUpdates(func() error {
+		_, err := a.CheckForUpdates()
+		return err
+	})
 	trayCtrl.SetRecentDownloads(func() []tray.RecentEntry {
 		entries, err := act.Recent(5)
 		if err != nil {

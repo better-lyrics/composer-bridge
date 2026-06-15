@@ -74,3 +74,6 @@ var MenuX []byte
 
 //go:embed menu/dot.png
 var MenuDot []byte
+
+//go:embed menu/cloud-download.png
+var MenuCloudDownload []byte
