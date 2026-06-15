@@ -70,6 +70,33 @@ func TestEndDownload_WithErrorMessageStoresIt(t *testing.T) {
 	}
 }
 
+func TestSetUpdatePending_FlipsField(t *testing.T) {
+	h := NewHolder()
+	h.SetUpdatePending(true)
+	if !h.Snapshot().UpdatePending {
+		t.Error("UpdatePending: got false, want true after SetUpdatePending(true)")
+	}
+	h.SetUpdatePending(false)
+	if h.Snapshot().UpdatePending {
+		t.Error("UpdatePending: got true, want false after SetUpdatePending(false)")
+	}
+}
+
+func TestSetUpdatePending_NoopWhenUnchanged(t *testing.T) {
+	h := NewHolder()
+	var calls int
+	t.Cleanup(h.OnChange(func(_ State) { calls++ }))
+	h.SetUpdatePending(false)
+	if calls != 0 {
+		t.Errorf("subscriber fired on no-op set: calls=%d", calls)
+	}
+	h.SetUpdatePending(true)
+	h.SetUpdatePending(true)
+	if calls != 1 {
+		t.Errorf("subscriber fired on idempotent re-set: calls=%d, want 1", calls)
+	}
+}
+
 func TestOnChange_FiresAfterStartDownload(t *testing.T) {
 	h := NewHolder()
 	got := make(chan State, 1)

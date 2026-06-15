@@ -45,6 +45,7 @@ describe("ServerSection", () => {
         download: "idle",
         downloadVideoId: "",
         lastError: "",
+        updatePending: false,
       },
     });
     render(<ServerSection config={makeConfig()} />);
@@ -59,6 +60,7 @@ describe("ServerSection", () => {
         download: "idle",
         downloadVideoId: "",
         lastError: "",
+        updatePending: false,
       },
     });
     render(<ServerSection config={makeConfig()} />);
@@ -73,6 +75,7 @@ describe("ServerSection", () => {
         download: "idle",
         downloadVideoId: "",
         lastError: "",
+        updatePending: false,
       },
     });
     render(<ServerSection config={makeConfig()} />);
@@ -87,6 +90,7 @@ describe("ServerSection", () => {
         download: "idle",
         downloadVideoId: "",
         lastError: "",
+        updatePending: false,
       },
     });
     render(<ServerSection config={makeConfig()} />);
@@ -101,6 +105,7 @@ describe("ServerSection", () => {
         download: "idle",
         downloadVideoId: "",
         lastError: "",
+        updatePending: false,
       },
     });
     render(<ServerSection config={makeConfig()} />);
@@ -115,6 +120,7 @@ describe("ServerSection", () => {
         download: "idle",
         downloadVideoId: "",
         lastError: "",
+        updatePending: false,
       },
     });
     render(<ServerSection config={makeConfig()} />);
@@ -128,6 +134,7 @@ describe("ServerSection", () => {
         download: "idle",
         downloadVideoId: "",
         lastError: "",
+        updatePending: false,
       },
     });
     render(<ServerSection config={makeConfig({ listen_port: 7777 })} />);
