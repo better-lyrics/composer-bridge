@@ -195,6 +195,26 @@ func TestWithCORS_LiveAllowedListPicksUpAdditions(t *testing.T) {
 	}
 }
 
+func TestWithCORS_FirstPartyOriginAllowedWithoutConfig(t *testing.T) {
+	// Regression: the composer web app's domain must be CORS-allowed even when the
+	// user's saved config (carried over from a version that predates the domain)
+	// does not list it. This is the retroactive guarantee.
+	srv := httptest.NewServer(WithCORS(okHandler(), staticOrigins([]string{"http://localhost:5173"})))
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/anything", nil)
+	req.Header.Set("Origin", "https://composer.betterlyrics.org")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "https://composer.betterlyrics.org" {
+		t.Errorf("allow-origin: got %q, want https://composer.betterlyrics.org (first-party always allowed)", got)
+	}
+}
+
 func TestWithCORS_NoWildcardSuffixMatching(t *testing.T) {
 	srv := httptest.NewServer(WithCORS(okHandler(), staticOrigins([]string{"https://composer.boidu.dev"})))
 	defer srv.Close()

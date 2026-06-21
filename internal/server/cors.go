@@ -38,8 +38,24 @@ func WithCORS(next http.Handler, allowedFn func() []string) http.Handler {
 	})
 }
 
+// firstPartyOrigins are CORS-allowed on every request regardless of the user's
+// configured AllowedOrigins. The composer web app gained a new domain; forcing it
+// here means the move reaches installs whose saved config predates it, with no
+// settings edit. ponytail: compiled in, not fetched, so an already-running old
+// binary only picks it up after it updates; add a remote-fetched allowlist if that
+// ever matters.
+var firstPartyOrigins = []string{
+	"https://composer.boidu.dev",
+	"https://composer.betterlyrics.org",
+}
+
 func originAllowed(origin string, allowed []string) bool {
 	target := normalizeOrigin(origin)
+	for _, o := range firstPartyOrigins {
+		if normalizeOrigin(o) == target {
+			return true
+		}
+	}
 	for _, o := range allowed {
 		if normalizeOrigin(o) == target {
 			return true
