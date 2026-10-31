@@ -231,3 +231,44 @@ func TestWithCORS_NoWildcardSuffixMatching(t *testing.T) {
 		t.Errorf("allow-origin: got %q, want empty (no suffix matching)", got)
 	}
 }
+
+func TestOriginAllowed_SubdomainWildcard(t *testing.T) {
+	allowed := []string{
+		"https://*.dev.composer.betterlyrics.org",
+		"http://*.preview.example:8080",
+		"https://*",
+		"https://*.com",
+		"https://*.org.",
+		"https://*..net",
+		"https://*.Mixed.Example.org",
+	}
+	cases := []struct {
+		origin string
+		want   bool
+	}{
+		{"https://pr-12.dev.composer.betterlyrics.org", true},
+		{"https://pr-12.dev.composer.betterlyrics.org/", true},
+		{"https://a.b.dev.composer.betterlyrics.org", true},
+		{"http://a.preview.example:8080", true},
+		{"https://a.mixed.example.org", true},
+		{"https://PR-12.dev.composer.betterlyrics.org", true},
+
+		{"https://dev.composer.betterlyrics.org", false},
+		{"https://.dev.composer.betterlyrics.org", false},
+		{"http://pr-12.dev.composer.betterlyrics.org", false},
+		{"https://evildev.composer.betterlyrics.org", false},
+		{"https://pr-12.dev.composer.betterlyrics.org.evil.com", false},
+		{"https://pr-12.dev.composer.betterlyrics.org:8443", false},
+		{"http://a.preview.example", false},
+		{"http://a.preview.example:9090", false},
+		{"https://evil.example", false},
+		{"https://anything.com", false},
+		{"https://evil.org.", false},
+		{"https://evil.x.net", false},
+	}
+	for _, c := range cases {
+		if got := originAllowed(c.origin, allowed); got != c.want {
+			t.Errorf("originAllowed(%q) = %v, want %v", c.origin, got, c.want)
+		}
+	}
+}
