@@ -2,13 +2,15 @@ package server
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 )
 
 // WithCORS returns next wrapped with CORS handling. allowedFn is called per
 // request so changes to the underlying list (e.g. SaveConfig appending a new
 // origin) take effect on the next request without restarting the server.
-// Origins are matched exactly after trimming any trailing slash. Requests without
+// Origins are matched exactly after trimming any trailing slash, except entries of
+// the form scheme://*.host[:port], which match any subdomain of host. Requests without
 // an Origin header pass through untouched (server-to-server calls, curl). Requests
 // with a non-allowed Origin still get Vary: Origin so caches don't poison cross-origin
 // responses, but never receive Access-Control-Allow-Origin. OPTIONS preflights from
@@ -41,9 +43,8 @@ func WithCORS(next http.Handler, allowedFn func() []string) http.Handler {
 // firstPartyOrigins are CORS-allowed on every request regardless of the user's
 // configured AllowedOrigins. The composer web app gained a new domain; forcing it
 // here means the move reaches installs whose saved config predates it, with no
-// settings edit. ponytail: compiled in, not fetched, so an already-running old
-// binary only picks it up after it updates; add a remote-fetched allowlist if that
-// ever matters.
+// settings edit. Compiled in, not fetched, so an already-running old binary only
+// picks it up after it updates.
 var firstPartyOrigins = []string{
 	"https://composer.boidu.dev",
 	"https://composer.betterlyrics.org",
@@ -57,11 +58,27 @@ func originAllowed(origin string, allowed []string) bool {
 		}
 	}
 	for _, o := range allowed {
-		if normalizeOrigin(o) == target {
+		if matchOrigin(normalizeOrigin(o), target) {
 			return true
 		}
 	}
 	return false
+}
+
+// matchOrigin requires at least two non-empty labels after "*." so a pattern like
+// https://*.com cannot open CORS to a bare TLD. Public suffixes such as *.co.uk are
+// not detected.
+func matchOrigin(pattern, origin string) bool {
+	pattern, origin = strings.ToLower(pattern), strings.ToLower(origin)
+	if pattern == origin {
+		return true
+	}
+	scheme, suffix, ok := strings.Cut(pattern, "://*.")
+	if !ok || !strings.Contains(suffix, ".") || slices.Contains(strings.Split(suffix, "."), "") {
+		return false
+	}
+	host, ok := strings.CutPrefix(origin, scheme+"://")
+	return ok && len(host) > len(suffix)+1 && strings.HasSuffix(host, "."+suffix) && !strings.HasPrefix(host, ".")
 }
 
 func normalizeOrigin(o string) string { return strings.TrimRight(o, "/") }
