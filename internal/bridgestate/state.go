@@ -85,16 +85,14 @@ func (h *Holder) StartDownload(videoID string) {
 	h.notify(snap)
 }
 
-// EndDownload resets the download to idle and clears the video ID. When
-// errMsg is non-empty it is stored as the most recent error so callers
-// can surface it in the UI.
+// EndDownload resets the download to idle and clears the video ID. LastError
+// tracks the outcome of the most recent download: errMsg on failure, empty on
+// success, so one failed download does not pin the error state.
 func (h *Holder) EndDownload(errMsg string) {
 	h.mu.Lock()
 	h.state.Download = DownloadIdle
 	h.state.DownloadVideoID = ""
-	if errMsg != "" {
-		h.state.LastError = errMsg
-	}
+	h.state.LastError = errMsg
 	snap := h.state
 	h.mu.Unlock()
 	h.notify(snap)

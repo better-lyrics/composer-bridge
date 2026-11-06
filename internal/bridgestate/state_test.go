@@ -70,6 +70,17 @@ func TestEndDownload_WithErrorMessageStoresIt(t *testing.T) {
 	}
 }
 
+func TestEndDownload_RegressionSuccessClearsPreviousError(t *testing.T) {
+	h := NewHolder()
+	h.StartDownload("bad")
+	h.EndDownload("yt-dlp exit 1")
+	h.StartDownload("good")
+	h.EndDownload("")
+	if s := h.Snapshot(); s.LastError != "" {
+		t.Errorf("LastError after a successful download: got %q, want empty", s.LastError)
+	}
+}
+
 func TestSetUpdatePending_FlipsField(t *testing.T) {
 	h := NewHolder()
 	h.SetUpdatePending(true)
