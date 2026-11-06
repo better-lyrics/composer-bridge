@@ -35,7 +35,7 @@ type Bridge struct {
 	ln       net.Listener
 	port     int
 	stopping bool
-	handlers sync.WaitGroup
+	handlers *sync.WaitGroup
 }
 
 // New returns a Bridge that will broadcast lifecycle transitions through
@@ -67,11 +67,13 @@ func (b *Bridge) Start(preferred int) error {
 	}
 	srv := b.build()
 	inner := srv.Handler
+	handlers := new(sync.WaitGroup)
 	srv.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b.handlers.Add(1)
-		defer b.handlers.Done()
+		handlers.Add(1)
+		defer handlers.Done()
 		inner.ServeHTTP(w, r)
 	})
+	b.handlers = handlers
 	b.srv = srv
 	b.ln = ln
 	b.port = ln.Addr().(*net.TCPAddr).Port
@@ -106,6 +108,7 @@ func (b *Bridge) Stop() error {
 		return nil
 	}
 	srv := b.srv
+	handlers := b.handlers
 	b.ln = nil
 	b.srv = nil
 	b.stopping = true
@@ -119,7 +122,7 @@ func (b *Bridge) Stop() error {
 		// Long-lived /audio streams outlast the grace period; close them so the
 		// server really stops and their request contexts cancel yt-dlp.
 		err = srv.Close()
-		b.waitForHandlers(handlerDrainTimeout)
+		waitForHandlers(handlers, handlerDrainTimeout)
 	}
 
 	b.mu.Lock()
@@ -137,10 +140,12 @@ func (b *Bridge) Port() int {
 	return b.port
 }
 
-func (b *Bridge) waitForHandlers(timeout time.Duration) {
+// waitForHandlers takes the WaitGroup of one server cycle, so a waiter left
+// behind by a timeout never shares it with the next Start.
+func waitForHandlers(handlers *sync.WaitGroup, timeout time.Duration) {
 	done := make(chan struct{})
 	go func() {
-		b.handlers.Wait()
+		handlers.Wait()
 		close(done)
 	}()
 	select {
