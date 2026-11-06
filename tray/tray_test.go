@@ -194,7 +194,7 @@ func TestMaybeStartPulse_StopsWhenStateLeavesActive(t *testing.T) {
 		t.Fatal("pulseRunning should be true after maybeStartPulse with active state")
 	}
 
-	holder.EndDownload("")
+	holder.EndDownload("vid", "")
 
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
@@ -217,7 +217,7 @@ func TestMaybeStartPulse_IsIdempotentForActiveState(t *testing.T) {
 	holder.SetServer(bridgestate.ServerRunning)
 	holder.StartDownload("vid")
 	t.Cleanup(func() {
-		holder.EndDownload("")
+		holder.EndDownload("vid", "")
 		deadline := time.Now().Add(500 * time.Millisecond)
 		for time.Now().Before(deadline) && c.pulseRunning.Load() {
 			time.Sleep(5 * time.Millisecond)

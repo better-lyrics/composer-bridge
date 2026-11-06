@@ -220,7 +220,7 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 		}
 		h.endActivity(actID, activity.StatusOK, "")
 		if h.State != nil {
-			h.State.EndDownload("")
+			h.State.EndDownload(videoID, "")
 		}
 		return
 	}
@@ -231,13 +231,13 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 		// The client went away (seek, skip, closed tab): not a bridge failure.
 		h.endActivity(actID, activity.StatusError, videoID+": cancelled by client")
 		if h.State != nil {
-			h.State.EndDownload("")
+			h.State.EndDownload(videoID, "")
 		}
 		return
 	}
 	h.endActivity(actID, activity.StatusError, fmt.Sprintf("%s: %v", videoID, err))
 	if h.State != nil {
-		h.State.EndDownload(fmt.Sprintf("%s: %v", videoID, err))
+		h.State.EndDownload(videoID, fmt.Sprintf("%s: %v", videoID, err))
 	}
 	if tw.wrote {
 		slog.Warn("audio stream failed mid-flight", "videoID", videoID, "err", err)
