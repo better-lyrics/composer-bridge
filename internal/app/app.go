@@ -687,11 +687,7 @@ func (a *App) UploadCookies(content string) error {
 	if err := ytdlp.SaveCookies(a.dataDir, content); err != nil {
 		return err
 	}
-	a.mu.Lock()
-	a.cfg.CookiesEnabled = true
-	cfgCopy := a.cfg
-	a.mu.Unlock()
-	if err := config.Save(a.cfgPath, cfgCopy); err != nil {
+	if err := a.updateConfig(func(c *config.Config) { c.CookiesEnabled = true }); err != nil {
 		return fmt.Errorf("persist cookies-enabled flag: %w", err)
 	}
 	return nil
@@ -703,34 +699,22 @@ func (a *App) RemoveCookies() error {
 	if err := ytdlp.RemoveCookies(a.dataDir); err != nil {
 		return err
 	}
-	a.mu.Lock()
-	a.cfg.CookiesEnabled = false
-	cfgCopy := a.cfg
-	a.mu.Unlock()
-	return config.Save(a.cfgPath, cfgCopy)
+	return a.updateConfig(func(c *config.Config) { c.CookiesEnabled = false })
 }
 
 // SetCookiesEnabled flips the bridge-side gate without touching the file
 // on disk. Lets the user keep their uploaded cookies but pause use, or
 // re-enable after a pause.
 func (a *App) SetCookiesEnabled(enabled bool) error {
-	a.mu.Lock()
-	a.cfg.CookiesEnabled = enabled
-	cfgCopy := a.cfg
-	a.mu.Unlock()
-	return config.Save(a.cfgPath, cfgCopy)
+	return a.updateConfig(func(c *config.Config) { c.CookiesEnabled = enabled })
 }
 
-// SetPreferPremiumAudio persists the opt-in flag that prepends web_music to
-// yt-dlp's player_client chain. The flag is harmless on its own; the gate at
+// SetPreferPremiumAudio persists the opt-in flag that adds web_music to
+// yt-dlp's default player clients. The flag is harmless on its own; the gate at
 // PreferPremiumAudio() ensures it has no runtime effect until cookies are
 // also present and enabled.
 func (a *App) SetPreferPremiumAudio(enabled bool) error {
-	a.mu.Lock()
-	a.cfg.PreferPremiumAudio = enabled
-	cfgCopy := a.cfg
-	a.mu.Unlock()
-	return config.Save(a.cfgPath, cfgCopy)
+	return a.updateConfig(func(c *config.Config) { c.PreferPremiumAudio = enabled })
 }
 
 // PreferPremiumAudio reports the effective state of the premium audio probe.
@@ -828,14 +812,18 @@ func (a *App) StopServer() error {
 }
 
 func (a *App) persistServerEnabled(enabled bool) {
-	a.mu.Lock()
-	a.cfg.ServerEnabled = enabled
-	cfg := a.cfg
-	path := a.cfgPath
-	a.mu.Unlock()
-	if err := config.Save(path, cfg); err != nil {
+	if err := a.updateConfig(func(c *config.Config) { c.ServerEnabled = enabled }); err != nil {
 		slog.Warn("persist server_enabled failed", "err", err)
 	}
+}
+
+// updateConfig applies mutate and writes the result while holding the lock,
+// so concurrent setters reach disk in the same order they changed memory.
+func (a *App) updateConfig(mutate func(*config.Config)) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	mutate(&a.cfg)
+	return config.Save(a.cfgPath, a.cfg)
 }
 
 // YtdlpVersion returns the cached yt-dlp version string, or "unknown".
