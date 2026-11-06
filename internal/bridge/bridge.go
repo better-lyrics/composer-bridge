@@ -17,7 +17,11 @@ import (
 	"github.com/better-lyrics/composer-bridge/internal/bridgestate"
 )
 
-const shutdownTimeout = 5 * time.Second
+var shutdownTimeout = 5 * time.Second
+
+// handlerDrainTimeout bounds how long Stop waits for force-closed handlers to
+// clean up (kill yt-dlp, remove a half-written auto-download) before returning.
+const handlerDrainTimeout = 2 * time.Second
 
 // Bridge owns the listener and the http.Server bound to it for a single
 // run cycle. Because *http.Server cannot be reused after Shutdown, each
@@ -31,6 +35,7 @@ type Bridge struct {
 	ln       net.Listener
 	port     int
 	stopping bool
+	handlers sync.WaitGroup
 }
 
 // New returns a Bridge that will broadcast lifecycle transitions through
@@ -61,6 +66,12 @@ func (b *Bridge) Start(preferred int) error {
 		return fmt.Errorf("bridge listen: %w", err)
 	}
 	srv := b.build()
+	inner := srv.Handler
+	srv.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b.handlers.Add(1)
+		defer b.handlers.Done()
+		inner.ServeHTTP(w, r)
+	})
 	b.srv = srv
 	b.ln = ln
 	b.port = ln.Addr().(*net.TCPAddr).Port
@@ -104,6 +115,12 @@ func (b *Bridge) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	err := srv.Shutdown(ctx)
+	if errors.Is(err, context.DeadlineExceeded) {
+		// Long-lived /audio streams outlast the grace period; close them so the
+		// server really stops and their request contexts cancel yt-dlp.
+		err = srv.Close()
+		b.waitForHandlers(handlerDrainTimeout)
+	}
 
 	b.mu.Lock()
 	b.port = 0
@@ -118,4 +135,17 @@ func (b *Bridge) Port() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.port
+}
+
+func (b *Bridge) waitForHandlers(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		b.handlers.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		slog.Warn("bridge stop: handlers still running after close", "timeout", timeout)
+	}
 }
