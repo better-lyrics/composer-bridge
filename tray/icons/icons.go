@@ -77,3 +77,23 @@ var MenuDot []byte
 
 //go:embed menu/cloud-download.png
 var MenuCloudDownload []byte
+
+// windowsIcons are the icons systray receives on Windows, keyed for test
+// messages. icons_windows.go converts each one to .ico at startup.
+func windowsIcons() map[string]*[]byte {
+	return map[string]*[]byte{
+		"DefaultIdle":           &DefaultIdle,
+		"DefaultDownloading":    &DefaultDownloading,
+		"DefaultDownloadingDim": &DefaultDownloadingDim,
+		"DefaultError":          &DefaultError,
+		"DefaultStopped":        &DefaultStopped,
+		"DefaultUpdate":         &DefaultUpdate,
+		"MenuWindow":            &MenuWindow,
+		"MenuClock":             &MenuClock,
+		"MenuPower":             &MenuPower,
+		"MenuGear":              &MenuGear,
+		"MenuX":                 &MenuX,
+		"MenuDot":               &MenuDot,
+		"MenuCloudDownload":     &MenuCloudDownload,
+	}
+}
