@@ -174,3 +174,27 @@ func TestDownloadToFile_SuccessfulRedownloadReplacesFileInPlace(t *testing.T) {
 		t.Errorf("leftover files after download: %q", names)
 	}
 }
+
+// A UI download and the boot-time repair can target the same file at once;
+// each must stage separately so neither deletes the other's work.
+func TestDownloadToFile_RegressionConcurrentDownloadsToOneDestBothSucceed(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "Song [ZEcqHA7dbwM].opus")
+	script := writeFakeYtdlp(t, `prev=; for a in "$@"; do [ "$prev" = -o ] && out=$a; prev=$a; done; printf A > "$out.part"; sleep 0.3; mv "$out.part" "$out"`)
+
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := DownloadToFile(context.Background(), script, "ZEcqHA7dbwM", "opus", dest, "", false)
+			errs <- err
+		}()
+	}
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Errorf("concurrent download: %v", err)
+		}
+	}
+	if names := listDir(t, dir); len(names) != 1 {
+		t.Errorf("files after both downloads: %q, want only the destination", names)
+	}
+}

@@ -76,7 +76,10 @@ func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath, c
 	if err := validateVideoID(videoID); err != nil {
 		return 0, err
 	}
-	staging := stagingPath(destPath)
+	staging, err := reserveStagingPath(destPath)
+	if err != nil {
+		return 0, err
+	}
 	defer removeStaging(staging)
 	args := []string{
 		"-f", FormatSelector(format),
@@ -110,12 +113,21 @@ func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath, c
 	return stat.Size(), nil
 }
 
-// stagingPath keeps destPath's extension so yt-dlp's audio extraction, which
-// rewrites the extension, still lands on the same path.
-func stagingPath(destPath string) string {
+// reserveStagingPath creates a unique hidden file next to destPath for yt-dlp
+// to write into, so concurrent downloads of one track never share it. The
+// name keeps destPath's extension so yt-dlp's audio extraction, which rewrites
+// the extension, still lands on the same path.
+func reserveStagingPath(destPath string) (string, error) {
 	dir, base := filepath.Split(destPath)
 	ext := filepath.Ext(base)
-	return filepath.Join(dir, "."+strings.TrimSuffix(base, ext)+".bridge-download"+ext)
+	f, err := os.CreateTemp(dir, "."+strings.TrimSuffix(base, ext)+".bridge-download-*"+ext)
+	if err != nil {
+		return "", fmt.Errorf("reserve download staging file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("reserve download staging file: %w", err)
+	}
+	return f.Name(), nil
 }
 
 func removeStaging(staging string) {
