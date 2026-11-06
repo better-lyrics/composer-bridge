@@ -88,16 +88,20 @@ const TrackCard: React.FC<TrackCardProps> = ({ track, onSelect, onDownloaded }) 
   };
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(track.video_id)}
+    <div
       data-testid="track-card"
       data-video-id={track.video_id}
       className={cn(
-        "group flex items-center gap-3 rounded-[0.875rem] border border-composer-border bg-composer-bg-dark p-2 text-left",
+        "group relative flex items-center gap-3 rounded-[0.875rem] border border-composer-border bg-composer-bg-dark p-2 text-left",
         "transition-colors hover:border-composer-border-hover hover:bg-composer-button/30",
       )}
     >
+      <button
+        type="button"
+        onClick={() => onSelect(track.video_id)}
+        aria-label={`Show details for ${track.title}`}
+        className="absolute inset-0 rounded-[0.875rem]"
+      />
       <div className="relative size-14 shrink-0 overflow-hidden rounded-md bg-composer-bg-elevated">
         <img
           src={`${BRIDGE_THUMB_BASE}/${track.video_id}`}
@@ -121,7 +125,7 @@ const TrackCard: React.FC<TrackCardProps> = ({ track, onSelect, onDownloaded }) 
           {formatDuration(track.duration_sec)}
         </span>
       </div>
-      <div className="flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="relative flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
         <ActionButton
           label={copiedId ? "Copied video ID" : "Copy video ID"}
           onClick={() => void copyId(track.video_id)}
@@ -145,7 +149,7 @@ const TrackCard: React.FC<TrackCardProps> = ({ track, onSelect, onDownloaded }) 
           <IconExternalLink size={14} />
         </ActionButton>
       </div>
-    </button>
+    </div>
   );
 };
 

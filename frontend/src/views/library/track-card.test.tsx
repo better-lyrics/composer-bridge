@@ -53,7 +53,7 @@ describe("TrackCard", () => {
   it("clicking the card fires onSelect with the videoID", () => {
     const onSelect = vi.fn();
     render(<TrackCard track={makeTrack()} onSelect={onSelect} onDownloaded={vi.fn()} />);
-    fireEvent.click(screen.getByTestId("track-card"));
+    fireEvent.click(screen.getByRole("button", { name: /Show details for/i }));
     expect(onSelect).toHaveBeenCalledWith("RgKAFK5djSk");
   });
 
