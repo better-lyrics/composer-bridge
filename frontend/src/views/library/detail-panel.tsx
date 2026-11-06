@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   IconBrandYoutube,
   IconCheck,
+  IconCopy,
   IconDownload,
   IconExternalLink,
   IconLoader2,
@@ -19,6 +20,7 @@ import type { library } from "../../../wailsjs/go/models";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
 import { Button } from "@/components/button";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useUIStore } from "@/stores/ui-store";
 import { cn } from "@/utils/cn";
 import { formatDuration } from "@/utils/format-time";
@@ -45,6 +47,22 @@ const MetaRow: React.FC<{ label: string; value: React.ReactNode; mono?: boolean 
     <dd className={cn("text-composer-text select-text", mono && "font-mono text-[11px]")}>{value}</dd>
   </>
 );
+
+const CopyVideoId: React.FC<{ videoId: string }> = ({ videoId }) => {
+  const { copied, copy } = useCopyToClipboard();
+  return (
+    <button
+      type="button"
+      onClick={() => void copy(videoId)}
+      title="Copy video ID"
+      aria-label={copied ? "Copied video ID" : `Copy video ID ${videoId}`}
+      className="inline-flex items-center gap-1.5 text-composer-text transition-colors hover:text-composer-accent"
+    >
+      {videoId}
+      {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+    </button>
+  );
+};
 
 // -- Component ----------------------------------------------------------------
 
@@ -198,7 +216,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
               <MetaRow label="Duration" value={formatDuration(track.duration_sec)} mono />
               {track.release_year > 0 && <MetaRow label="Released" value={track.release_year} />}
               {track.music_type && <MetaRow label="Type" value={track.music_type} />}
-              <MetaRow label="Video ID" value={track.video_id} mono />
+              <MetaRow label="Video ID" value={<CopyVideoId videoId={track.video_id} />} mono />
             </dl>
             <div className="flex flex-col gap-2">
               <Button variant="primary" size="md" hasIcon onClick={openComposer}>

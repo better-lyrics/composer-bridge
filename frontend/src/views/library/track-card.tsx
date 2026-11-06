@@ -1,8 +1,15 @@
 import { useState } from "react";
-import { IconCheck, IconDownload, IconExternalLink, IconLoader2 } from "@tabler/icons-react";
+import {
+  IconCheck,
+  IconCopy,
+  IconDownload,
+  IconExternalLink,
+  IconLoader2,
+} from "@tabler/icons-react";
 import { DownloadAudio, OpenInComposer } from "../../../wailsjs/go/app/App";
 import type { library } from "../../../wailsjs/go/models";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useUIStore } from "@/stores/ui-store";
 import { cn } from "@/utils/cn";
 import { formatDuration } from "@/utils/format-time";
@@ -51,6 +58,7 @@ const ActionButton: React.FC<{
 const TrackCard: React.FC<TrackCardProps> = ({ track, onSelect, onDownloaded }) => {
   const [thumbLoaded, setThumbLoaded] = useState(false);
   const downloading = useUIStore((s) => s.activeDownloads.has(track.video_id));
+  const { copied: copiedId, copy: copyId } = useCopyToClipboard();
   const beginDownload = useUIStore((s) => s.beginDownload);
   const endDownload = useUIStore((s) => s.endDownload);
   const isDownloaded = track.audio_path !== "";
@@ -114,6 +122,12 @@ const TrackCard: React.FC<TrackCardProps> = ({ track, onSelect, onDownloaded }) 
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <ActionButton
+          label={copiedId ? "Copied video ID" : "Copy video ID"}
+          onClick={() => void copyId(track.video_id)}
+        >
+          {copiedId ? <IconCheck size={14} /> : <IconCopy size={14} />}
+        </ActionButton>
         <ActionButton
           label={isDownloaded ? "Already downloaded" : downloading ? "Downloading…" : "Download audio"}
           onClick={handleDownload}

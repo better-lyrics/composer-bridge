@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   IconCheck,
   IconCopy,
@@ -7,6 +6,7 @@ import {
   type IconProps,
 } from "@tabler/icons-react";
 import type { activity } from "../../../wailsjs/go/models";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { cn } from "@/utils/cn";
 import { formatRelativeTime } from "@/utils/format-time";
 
@@ -43,16 +43,10 @@ function statusIcon(status: string): {
 // -- Sub-components -----------------------------------------------------------
 
 const CopyButton: React.FC<{ text: string }> = ({ text }) => {
-  const [copied, setCopied] = useState(false);
-  const handle = async (e: React.MouseEvent) => {
+  const { copied, copy } = useCopyToClipboard();
+  const handle = (e: React.MouseEvent) => {
     e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (err) {
-      console.error("clipboard write failed", err);
-    }
+    void copy(text);
   };
   return (
     <button
