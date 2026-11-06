@@ -371,11 +371,14 @@ func TestVerifyCookies_AuthenticatedOnceFirstRequestPasses(t *testing.T) {
 	if err := os.WriteFile(cookies, []byte("# Netscape HTTP Cookie File\n"), 0o600); err != nil {
 		t.Fatalf("seed cookies: %v", err)
 	}
+	// Like the real binary, a child process keeps stderr open after the probe
+	// kills the parent.
 	script := writeFakeYtdlp(t, `
+sleep 30 &
 echo "[debug] Found YouTube account cookies" >&2
 echo "[youtube] dQw4w9WgXcQ: Downloading webpage" >&2
 echo "[youtube] dQw4w9WgXcQ: Downloading tv samsung player API JSON" >&2
-sleep 30
+wait
 `)
 	start := time.Now()
 	res, err := VerifyCookies(context.Background(), script, cookies)

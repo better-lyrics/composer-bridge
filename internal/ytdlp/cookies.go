@@ -153,6 +153,7 @@ func VerifyCookies(ctx context.Context, ytdlpPath, cookiesPath string) (VerifyRe
 	var stderr strings.Builder
 	authenticated := false
 	rotated := false
+	killed := false
 	scanner := bufio.NewScanner(stderrPipe)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	// yt-dlp logs the auth marker at startup but checks for rotation only after
@@ -172,10 +173,16 @@ func VerifyCookies(ctx context.Context, ytdlpPath, cookiesPath string) (VerifyRe
 		firstRequestDone := strings.HasPrefix(line, "[youtube] ") && strings.Contains(line, ": Downloading ") && !strings.Contains(line, "Downloading webpage")
 		if rotated || authenticated && firstRequestDone {
 			_ = cmd.Process.Kill()
+			killed = true
 			break
 		}
 	}
-	_, _ = io.Copy(io.Discard, stderrPipe)
+	// After a kill, a child of yt-dlp's bootloader can hold stderr open until
+	// it finishes, so draining would wait out the whole extraction; Wait
+	// closes the pipe once the killed process exits.
+	if !killed {
+		_, _ = io.Copy(io.Discard, stderrPipe)
+	}
 	waitErr := cmd.Wait()
 	se := stderr.String()
 
