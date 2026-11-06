@@ -305,13 +305,15 @@ func (a *App) InstallUpdate() error {
 	if info == nil || !info.Available {
 		return errors.New("no update available")
 	}
+	// Stays set after success: the new process is already launched and this
+	// one is quitting, so a later click must not apply and relaunch again.
 	if !a.installingUpdate.CompareAndSwap(false, true) {
 		return errors.New("an update is already being installed")
 	}
-	defer a.installingUpdate.Store(false)
 	ctx, cancel := context.WithTimeout(context.Background(), updateInstallTimeout)
 	defer cancel()
 	if err := updater.ApplyAndRelaunch(ctx, info.Asset); err != nil {
+		a.installingUpdate.Store(false)
 		return fmt.Errorf("apply update: %w", err)
 	}
 	a.MarkQuitting()
