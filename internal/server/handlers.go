@@ -217,6 +217,14 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	if capture != nil {
 		capture.discard()
 	}
+	if r.Context().Err() != nil {
+		// The client went away (seek, skip, closed tab): not a bridge failure.
+		h.endActivity(actID, activity.StatusError, videoID+": cancelled by client")
+		if h.State != nil {
+			h.State.EndDownload("")
+		}
+		return
+	}
 	h.endActivity(actID, activity.StatusError, fmt.Sprintf("%s: %v", videoID, err))
 	if h.State != nil {
 		h.State.EndDownload(fmt.Sprintf("%s: %v", videoID, err))

@@ -1203,6 +1203,37 @@ func TestAudio_FailedDownloadRecordsLastErrorOnHolder(t *testing.T) {
 	}
 }
 
+func TestAudio_RegressionClientAbortDoesNotRecordLastError(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `head -c 200000 /dev/zero; sleep 5`))
+	holder := bridgestate.NewHolder()
+	env.handlers.State = holder
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, env.server.URL+"/audio/RgKAFK5djSk", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	buf := make([]byte, 1)
+	if _, err := io.ReadFull(resp.Body, buf); err != nil {
+		t.Fatalf("read first byte: %v", err)
+	}
+	cancel()
+	resp.Body.Close()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for holder.Snapshot().Download != bridgestate.DownloadIdle && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	snap := holder.Snapshot()
+	if snap.Download != bridgestate.DownloadIdle {
+		t.Fatalf("Download: got %q, want idle after client abort", snap.Download)
+	}
+	if snap.LastError != "" {
+		t.Errorf("LastError after client abort: got %q, want empty (a skip or seek is not a failure)", snap.LastError)
+	}
+}
+
 func TestAudio_NilHolderIsNoop(t *testing.T) {
 	// Regression: existing handlers tests construct Handlers without State.
 	// The handler must not panic when State is nil.
