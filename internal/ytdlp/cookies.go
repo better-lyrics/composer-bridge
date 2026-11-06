@@ -134,7 +134,6 @@ func VerifyCookies(ctx context.Context, ytdlpPath, cookiesPath string) (VerifyRe
 		"--verbose",
 		"--skip-download",
 		"--print", "%(id)s",
-		"--no-warnings",
 		"--no-playlist",
 		"--cookies", cookiesPath,
 		verifyTestURL,
@@ -156,6 +155,9 @@ func VerifyCookies(ctx context.Context, ytdlpPath, cookiesPath string) (VerifyRe
 	rotated := false
 	scanner := bufio.NewScanner(stderrPipe)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	// yt-dlp logs the auth marker at startup but checks for rotation only after
+	// each page request, so an authenticated verdict waits until the request
+	// after "Downloading webpage" starts.
 	for scanner.Scan() {
 		line := scanner.Text()
 		stderr.WriteString(line)
@@ -167,7 +169,8 @@ func VerifyCookies(ctx context.Context, ytdlpPath, cookiesPath string) (VerifyRe
 		case strings.Contains(line, "Found YouTube account cookies"):
 			authenticated = true
 		}
-		if rotated || authenticated {
+		firstRequestDone := strings.HasPrefix(line, "[youtube] ") && strings.Contains(line, ": Downloading ") && !strings.Contains(line, "Downloading webpage")
+		if rotated || authenticated && firstRequestDone {
 			_ = cmd.Process.Kill()
 			break
 		}
@@ -182,7 +185,7 @@ func VerifyCookies(ctx context.Context, ytdlpPath, cookiesPath string) (VerifyRe
 			Detail: "The cookies have expired or been rotated. Export a fresh cookies.txt from a signed-in browser session.",
 		}, nil
 	}
-	if authenticated {
+	if authenticated && !rotated {
 		return VerifyResult{
 			Loaded: true, Authenticated: true,
 			Detail: "Cookies loaded and YouTube recognised an authenticated session.",
