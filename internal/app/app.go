@@ -129,7 +129,9 @@ func resolveDownloadDir(configured string) string {
 // window: the app launches as Accessory (LSUIElement) so there is no Dock-icon
 // flash during the brief window Wails's own AppDelegate forces Regular on us.
 func (a *App) Startup(ctx context.Context) {
+	a.mu.Lock()
 	a.ctx = ctx
+	a.mu.Unlock()
 	tray.DockShow()
 	if a.showWindow != nil {
 		a.showWindow(ctx)
@@ -168,12 +170,7 @@ func (a *App) repairBrokenAudio(ctx context.Context) {
 		return
 	}
 	ytdlpPath := a.GetYtdlpPath()
-	a.mu.RLock()
-	format := a.cfg.AudioFormat
-	a.mu.RUnlock()
-	if format == "" {
-		format = "opus"
-	}
+	format := a.AudioFormat()
 	repaired := 0
 	for _, t := range tracks {
 		if ctx.Err() != nil {
@@ -224,6 +221,8 @@ func (a *App) Shutdown(_ context.Context) {
 // Ctx returns the Wails runtime context captured in Startup. May be nil before
 // Startup runs.
 func (a *App) Ctx() context.Context {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.ctx
 }
 
@@ -326,8 +325,8 @@ func (a *App) OnBeforeClose(_ context.Context) bool {
 	if a.quitting.Load() == 1 {
 		return false
 	}
-	if a.ctx != nil && a.hideWindow != nil {
-		a.hideWindow(a.ctx)
+	if ctx := a.Ctx(); ctx != nil && a.hideWindow != nil {
+		a.hideWindow(ctx)
 		tray.DockHide()
 	}
 	return true
@@ -597,6 +596,17 @@ func (a *App) SetStatusEmitter(emit func(ctx context.Context, name string, data 
 	a.mu.Lock()
 	a.statusEmitter = emit
 	a.mu.Unlock()
+}
+
+// AudioFormat is the live configured audio format, "opus" when unset. Read
+// per download so a Settings change applies without a restart.
+func (a *App) AudioFormat() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.cfg.AudioFormat == "" {
+		return "opus"
+	}
+	return a.cfg.AudioFormat
 }
 
 // AutoDownloadToLibrary reports whether /audio/{id} on a cache miss should
@@ -884,7 +894,7 @@ func (a *App) ForceYtdlpUpdate() (string, error) {
 	if override != "" {
 		return "", fmt.Errorf("binary path override is set to %s; force update is disabled. Clear the override in Settings to use auto-updates", override)
 	}
-	ctx := a.ctx
+	ctx := a.Ctx()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -912,16 +922,13 @@ func (a *App) DownloadAudio(videoID string) (*library.Track, error) {
 	ytdlpPath := a.GetYtdlpPath()
 	a.mu.RLock()
 	downloadDir := a.downloadDir
-	format := a.cfg.AudioFormat
 	a.mu.RUnlock()
+	format := a.AudioFormat()
 	if downloadDir == "" {
 		return nil, fmt.Errorf("download directory is not configured")
 	}
 	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create download dir: %w", err)
-	}
-	if format == "" {
-		format = "opus"
 	}
 	ext := ytdlp.FormatExtension(format)
 	dest := filepath.Join(downloadDir, library.AudioFilename(track.Title, videoID, ext))
@@ -938,7 +945,21 @@ func (a *App) DownloadAudio(videoID string) (*library.Track, error) {
 		return nil, err
 	}
 	a.endActivity(actID, activity.StatusOK, "")
+	a.emitLibraryUpdate(videoID)
 	return a.library.GetTrack(videoID)
+}
+
+// emitLibraryUpdate sends the same library:update event the HTTP handlers
+// send, so every open library view refreshes after a download from the UI.
+func (a *App) emitLibraryUpdate(videoID string) {
+	a.mu.RLock()
+	emit := a.statusEmitter
+	ctx := a.ctx
+	a.mu.RUnlock()
+	if emit == nil || ctx == nil {
+		return
+	}
+	emit(ctx, "library:update", map[string]string{"video_id": videoID})
 }
 
 // OpenLogFile returns the absolute path to the bridge log file. The frontend

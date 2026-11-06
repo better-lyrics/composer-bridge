@@ -89,9 +89,9 @@ type Handlers struct {
 	AutoDownload func() bool
 	ThumbDir     string
 	Bridge       string
-	AudioFormat  string
+	AudioFormat  func() string
 	Emitter      events.Emitter
-	EmitterCtx   context.Context
+	EmitterCtx   func() context.Context
 	State        *bridgestate.Holder
 }
 
@@ -187,9 +187,9 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	if served {
 		return
 	}
-	format := h.AudioFormat
-	if format == "" {
-		format = "opus"
+	format := "opus"
+	if h.AudioFormat != nil && h.AudioFormat() != "" {
+		format = h.AudioFormat()
 	}
 	actID := h.startActivity(activity.KindAudioDownload, videoID)
 	if h.State != nil {
@@ -464,10 +464,10 @@ func (h *Handlers) resolveTrackForAudio(ctx context.Context, videoID string) *li
 // library view can refresh without polling. Silent no-op when no Emitter is
 // wired (e.g., in unit tests).
 func (h *Handlers) emitLibraryUpdate(videoID string) {
-	if h.Emitter == nil || h.EmitterCtx == nil {
+	if h.Emitter == nil {
 		return
 	}
-	h.Emitter.Emit(h.EmitterCtx, "library:update", map[string]string{"video_id": videoID})
+	h.Emitter.Emit(h.emitterCtx(), "library:update", map[string]string{"video_id": videoID})
 }
 
 // Import fetches metadata for the body's video_id, inserts a track row, and returns the inserted record. Wrapped in an activity row.
@@ -637,6 +637,15 @@ func (h *Handlers) endActivity(id int64, st activity.Status, msg string) {
 	h.emitActivity(id)
 }
 
+// emitterCtx returns the Wails runtime context, or nil before startup; the
+// emitter drops events sent with a nil context.
+func (h *Handlers) emitterCtx() context.Context {
+	if h.EmitterCtx == nil {
+		return nil
+	}
+	return h.EmitterCtx()
+}
+
 // emitActivity publishes the latest snapshot of the activity row to the
 // frontend. Fails silently when no Emitter is wired (tests, headless boot).
 // Looks the row up by id rather than constructing it inline so a single source
@@ -653,7 +662,7 @@ func (h *Handlers) emitActivity(id int64) {
 	}
 	for _, e := range entries {
 		if e.ID == id {
-			h.Emitter.Emit(h.EmitterCtx, "activity:update", e)
+			h.Emitter.Emit(h.emitterCtx(), "activity:update", e)
 			return
 		}
 	}

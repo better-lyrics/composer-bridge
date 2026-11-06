@@ -127,8 +127,9 @@ func main() {
 		AutoDownload:       a.AutoDownloadToLibrary,
 		ThumbDir:           filepath.Join(dataDir, "thumbs"),
 		Bridge:             Version,
-		AudioFormat:        cfg.AudioFormat,
+		AudioFormat:        a.AudioFormat,
 		State:              holder,
+		EmitterCtx:         a.Ctx,
 		Emitter: events.EmitterFunc(func(ctx context.Context, name string, args ...any) {
 			if ctx == nil {
 				return
@@ -287,7 +288,6 @@ func main() {
 		},
 		OnStartup: func(ctx context.Context) {
 			a.Startup(ctx)
-			handlers.EmitterCtx = ctx
 			trayCtrl.BindContext(ctx)
 			trayCtrl.OnQuit(a.MarkQuitting)
 			trayCtrl.Start()

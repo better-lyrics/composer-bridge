@@ -926,7 +926,7 @@ func TestAudio_CacheHitContentTypeFromExtension(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.ext, func(t *testing.T) {
 			env := newTestEnv(t, "/nonexistent")
-			env.handlers.AudioFormat = "mp3" // intentionally wrong vs. on-disk
+			env.handlers.AudioFormat = func() string { return "mp3" } // intentionally wrong vs. on-disk
 			seedDownloadedTrack(t, env, "RgKAFK5djSk", tc.ext, []byte("cached"))
 
 			resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
@@ -1027,7 +1027,7 @@ func TestAudio_EmitterPublishesStartAndEnd(t *testing.T) {
 	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'hello world'`))
 	rec := &recordingEmitter{}
 	env.handlers.Emitter = rec
-	env.handlers.EmitterCtx = context.Background()
+	env.handlers.EmitterCtx = context.Background
 	srv := httptest.NewServer(env.handlers.Router())
 	defer srv.Close()
 
@@ -1344,7 +1344,7 @@ func seedTrackForAutoDL(t *testing.T, env *testEnv, videoID, title, format strin
 	dlDir := filepath.Join(t.TempDir(), "downloads")
 	env.handlers.DownloadDir = func() string { return dlDir }
 	env.handlers.AutoDownload = func() bool { return enabled }
-	env.handlers.AudioFormat = format
+	env.handlers.AudioFormat = func() string { return format }
 	seedTrack(t, env.lib, library.Track{
 		VideoID: videoID, Title: title, DurationSec: 10,
 		ThumbnailURL: "http://example.invalid/x.jpg",
@@ -1575,7 +1575,7 @@ func TestAudio_AutoDownload_CollisionResolvedByVideoID(t *testing.T) {
 	dlDir := filepath.Join(t.TempDir(), "downloads")
 	env.handlers.DownloadDir = func() string { return dlDir }
 	env.handlers.AutoDownload = func() bool { return true }
-	env.handlers.AudioFormat = "opus"
+	env.handlers.AudioFormat = func() string { return "opus" }
 
 	const idA, idB = "RgKAFK5djSk", "dQw4w9WgXcQ"
 	for _, id := range []string{idA, idB} {
