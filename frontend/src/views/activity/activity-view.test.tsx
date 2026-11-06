@@ -1,5 +1,6 @@
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { useUIStore } from "@/stores/ui-store";
 import { ActivityView } from "@/views/activity/activity-view";
 import { setupWailsMock, resetWailsMock, type AppBindings } from "@/test/wails-mock";
 
@@ -25,6 +26,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   resetWailsMock();
+  useUIStore.setState({ activityEntries: null });
 });
 
 describe("ActivityView", () => {
