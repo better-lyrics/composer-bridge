@@ -259,6 +259,9 @@ func convertJSONToNetscape(content string) (string, error) {
 		if c.Domain == "" || c.Name == "" {
 			continue
 		}
+		if strings.ContainsAny(c.Domain+c.Name+c.Value+c.Path, "\t\r\n") {
+			continue
+		}
 		includeSubdomains := "FALSE"
 		if strings.HasPrefix(c.Domain, ".") {
 			includeSubdomains = "TRUE"
