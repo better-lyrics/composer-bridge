@@ -44,7 +44,7 @@ const ActionButton: React.FC<{
     aria-label={label}
     title={label}
     className={cn(
-      "inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-composer-border bg-composer-button text-composer-text-secondary",
+      "pointer-events-auto inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-composer-border bg-composer-button text-composer-text-secondary",
       "transition-colors hover:bg-composer-button-hover hover:text-composer-text",
       "disabled:opacity-50 disabled:hover:bg-composer-button disabled:hover:text-composer-text-secondary",
     )}
@@ -100,9 +100,10 @@ const TrackCard: React.FC<TrackCardProps> = ({ track, onSelect, onDownloaded }) 
         type="button"
         onClick={() => onSelect(track.video_id)}
         aria-label={`Show details for ${track.title}`}
+        title={track.artist ? `${track.title}\n${track.artist}` : track.title}
         className="absolute inset-0 rounded-[0.875rem]"
       />
-      <div className="relative size-14 shrink-0 overflow-hidden rounded-md bg-composer-bg-elevated">
+      <div className="pointer-events-none relative size-14 shrink-0 overflow-hidden rounded-md bg-composer-bg-elevated">
         <img
           src={`${BRIDGE_THUMB_BASE}/${track.video_id}`}
           alt=""
@@ -115,17 +116,17 @@ const TrackCard: React.FC<TrackCardProps> = ({ track, onSelect, onDownloaded }) 
         />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-sm font-medium text-composer-text" title={track.title}>
+        <span className="truncate text-sm font-medium text-composer-text">
           {track.title}
         </span>
-        <span className="truncate text-xs text-composer-text-muted" title={track.artist}>
+        <span className="truncate text-xs text-composer-text-muted">
           {track.artist || "Unknown artist"}
         </span>
         <span className="font-mono text-[11px] text-composer-text-faint">
           {formatDuration(track.duration_sec)}
         </span>
       </div>
-      <div className="relative flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+      <div className="pointer-events-none relative flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
         <ActionButton
           label={copiedId ? "Copied video ID" : "Copy video ID"}
           onClick={() => void copyId(track.video_id)}
