@@ -8,23 +8,20 @@ import (
 	"testing"
 )
 
-func TestBuildExtractorArgs_DefaultExcludesWebMusic(t *testing.T) {
+func TestBuildExtractorArgs_RegressionDefaultLeavesClientChoiceToYtdlp(t *testing.T) {
 	got := BuildExtractorArgs(false)
-	if strings.Contains(got, "web_music") {
-		t.Errorf("default args should not include web_music, got %q", got)
+	if strings.Contains(got, "player_client") {
+		t.Errorf("default args must not pin player clients (pinned android_vr,web_safari started failing with HTTP 403), got %q", got)
 	}
 	if !strings.Contains(got, "player_skip=configs,initial_data") {
 		t.Errorf("default args should include player_skip, got %q", got)
 	}
 }
 
-func TestBuildExtractorArgs_PreferPremiumPrependsWebMusic(t *testing.T) {
+func TestBuildExtractorArgs_PreferPremiumAddsWebMusicToDefaults(t *testing.T) {
 	got := BuildExtractorArgs(true)
-	if !strings.HasPrefix(got, "youtube:player_client=web_music,") {
-		t.Errorf("prefer-premium args should start with web_music, got %q", got)
-	}
-	if !strings.Contains(got, "android_vr") || !strings.Contains(got, "web_safari") {
-		t.Errorf("prefer-premium args should still include fallback clients, got %q", got)
+	if !strings.Contains(got, "player_client=default,web_music") {
+		t.Errorf("prefer-premium args should add web_music on top of yt-dlp's default clients, got %q", got)
 	}
 }
 

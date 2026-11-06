@@ -21,18 +21,18 @@ func CookiesPath(dataDir string) string {
 	return filepath.Join(dataDir, cookiesFilename)
 }
 
-// BuildExtractorArgs returns the youtube:player_client + player_skip
-// extractor-args string for yt-dlp. When preferPremium is true, web_music
-// is prepended so YouTube Music's high-quality tier is tried first; this
-// costs latency when Premium isn't actually available, hence the opt-in.
-// player_skip=configs,initial_data eliminates redundant Innertube round
-// trips and is always applied.
+// BuildExtractorArgs returns the youtube extractor-args string for yt-dlp.
+// Player clients are left to yt-dlp, whose defaults track YouTube changes
+// through the daily binary refresh; pinning them broke downloads when YouTube
+// began requiring PO tokens for android_vr. preferPremium adds web_music on
+// top of the defaults for YouTube Music's higher quality tier.
+// player_skip=configs,initial_data skips redundant Innertube round trips.
 func BuildExtractorArgs(preferPremium bool) string {
-	clients := "android_vr,web_safari"
+	const skip = "player_skip=configs,initial_data"
 	if preferPremium {
-		clients = "web_music," + clients
+		return "youtube:player_client=default,web_music;" + skip
 	}
-	return "youtube:player_client=" + clients + ";player_skip=configs,initial_data"
+	return "youtube:" + skip
 }
 
 // HasCookies reports whether a cookies.txt exists in dataDir. Treats stat

@@ -14,10 +14,9 @@ import (
 // whatever audio (or audio+video) yt-dlp can produce. Unknown keys behave like
 // opus.
 //
-// The opus chain is the wide one because the bridge's player_client config
-// (web_music, android_vr, web_safari) frequently does not expose itag 251
-// (WebM-Opus); the only audio-bearing formats those clients return are HLS
-// m3u8 (MPEG-TS) plus a single non-HLS mp4 with bundled AAC. So:
+// The opus chain is the wide one because some YouTube player clients do not
+// expose itag 251 (WebM-Opus); the only audio-bearing formats they return are
+// HLS m3u8 (MPEG-TS) plus a single non-HLS mp4 with bundled AAC. So:
 //
 //  1. itag 251 if available (WebM-Opus, smallest playable)
 //  2. any audio-only WebM (covers itag 249/250 / opus-low)
@@ -73,7 +72,6 @@ func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath, c
 	args := []string{
 		"-f", FormatSelector(format),
 		"-o", destPath,
-		"--no-warnings",
 		"--no-playlist",
 		"--force-overwrites",
 		"--extractor-args", BuildExtractorArgs(preferPremium),

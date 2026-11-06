@@ -265,8 +265,7 @@ func TestFetchInfo_ArgvIncludesRegressionFlags(t *testing.T) {
 	msg := err.Error()
 	wantSubstrs := []string{
 		"--no-playlist",
-		"--no-warnings",
-		"youtube:player_client=android_vr,web_safari;player_skip=configs,initial_data",
+		"youtube:player_skip=configs,initial_data",
 		"-j",
 		"--skip-download",
 		"https://www.youtube.com/watch?v=ZEcqHA7dbwM",
@@ -291,9 +290,8 @@ func TestStreamAudio_ArgvIncludesRegressionFlags(t *testing.T) {
 		"bestaudio[acodec=opus][ext=webm]/bestaudio[ext=webm]/bestaudio[protocol!*=m3u8]/best[protocol!*=m3u8]/bestaudio/best",
 		"-o",
 		"--quiet",
-		"--no-warnings",
 		"--no-playlist",
-		"youtube:player_client=android_vr,web_safari;player_skip=configs,initial_data",
+		"youtube:player_skip=configs,initial_data",
 		"https://www.youtube.com/watch?v=ZEcqHA7dbwM",
 	}
 	for _, s := range wantSubstrs {

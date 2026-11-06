@@ -55,7 +55,6 @@ func FetchInfo(ctx context.Context, ytdlpPath, videoID, cookiesPath string, pref
 	args := []string{
 		"-j",
 		"--skip-download",
-		"--no-warnings",
 		"--no-playlist",
 		"--extractor-args", BuildExtractorArgs(preferPremium),
 	}
@@ -92,7 +91,6 @@ func StreamAudio(ctx context.Context, ytdlpPath, videoID, format, cookiesPath st
 		"-f", FormatSelector(format),
 		"-o", "-",
 		"--quiet",
-		"--no-warnings",
 		"--no-playlist",
 		"--extractor-args", BuildExtractorArgs(preferPremium),
 	}

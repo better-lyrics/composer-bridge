@@ -30,7 +30,7 @@ func SetDenoBinDir(dir string) {
 // Why this matters: macOS apps launched by launchd (Finder, Dock, login
 // item) inherit a minimal PATH that omits /opt/homebrew/bin. yt-dlp's
 // youtube extractor needs an external JS engine (deno, node) to solve n-sig
-// challenges for the web_safari client. Without one on PATH, n-sig solve
+// challenges. Without one on PATH, n-sig solve
 // silently fails, the format URLs are unusable, and yt-dlp reports
 // "Requested format is not available" with zero formats extracted. Bundled
 // deno under <dataDir>/bin is the primary mechanism; the Homebrew dirs are a
