@@ -78,8 +78,19 @@ var MenuDot []byte
 //go:embed menu/cloud-download.png
 var MenuCloudDownload []byte
 
-// windowsIcons are the icons systray receives on Windows, keyed for test
-// messages. icons_windows.go converts each one to .ico at startup.
+// windowsIconPNGs keeps the embedded PNG bytes of every Windows icon. Package
+// variables initialize before init, so this holds the originals even on
+// Windows, where icons_windows.go then converts the icons in place.
+var windowsIconPNGs = func() map[string][]byte {
+	out := make(map[string][]byte)
+	for name, p := range windowsIcons() {
+		out[name] = *p
+	}
+	return out
+}()
+
+// windowsIcons are the icons systray receives on Windows, keyed by name.
+// icons_windows.go converts each one to .ico at startup.
 func windowsIcons() map[string]*[]byte {
 	return map[string]*[]byte{
 		"DefaultIdle":           &DefaultIdle,

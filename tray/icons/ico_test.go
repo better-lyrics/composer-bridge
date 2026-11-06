@@ -10,8 +10,8 @@ import (
 // The Windows tray loads icons with LoadImage(IMAGE_ICON), which rejects PNG
 // bytes. Every icon handed to systray on Windows must be a valid .ico.
 func TestICO_EveryWindowsIconIsAValidICO(t *testing.T) {
-	for name, p := range windowsIcons() {
-		ico, err := ICO(*p)
+	for name, src := range windowsIconPNGs {
+		ico, err := ICO(src)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
