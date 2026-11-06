@@ -166,7 +166,7 @@ const UpdateBanner: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowNotes((s) => !s)}
-                  className="cursor-pointer text-[11px] text-composer-text-muted underline-offset-2 hover:text-composer-text hover:underline"
+                  className="text-[11px] text-composer-text-muted underline-offset-2 hover:text-composer-text hover:underline"
                 >
                   {showNotes ? "Hide notes" : "What's new"}
                 </button>

@@ -80,7 +80,7 @@ const UploadArea: React.FC<UploadAreaProps> = ({
           }
         }}
         className={cn(
-          "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-composer-border bg-composer-input px-4 py-6 text-xs text-composer-text-muted transition-colors",
+          "flex flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-composer-border bg-composer-input px-4 py-6 text-xs text-composer-text-muted transition-colors",
           "hover:border-composer-accent hover:text-composer-text",
           busy && "pointer-events-none opacity-50",
         )}
@@ -106,7 +106,7 @@ const UploadArea: React.FC<UploadAreaProps> = ({
         <p className="mt-2 text-xs text-composer-error-text select-text">{uploadError}</p>
       )}
       <details className="group mt-3">
-        <summary className="flex cursor-pointer list-none items-center gap-1 text-xs text-composer-text-muted select-none hover:text-composer-text [&::-webkit-details-marker]:hidden">
+        <summary className="flex list-none items-center gap-1 text-xs text-composer-text-muted select-none hover:text-composer-text [&::-webkit-details-marker]:hidden">
           <IconChevronRight size={12} className="transition-transform group-open:rotate-90" />
           Or paste contents
         </summary>
