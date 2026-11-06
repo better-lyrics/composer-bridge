@@ -179,6 +179,7 @@ func main() {
 		func() string { return a.GetConfig().YtdlpBinaryPath },
 		refreshYtdlpVersion,
 	)
+	go ytdlp.RefreshDenoDaily(bgCtx, dataDir)
 	go updater.PollDaily(bgCtx, manifestURL, Version, func(info updater.UpdateInfo) {
 		slog.Info("bridge update available", "version", info.Latest, "current", info.Current)
 		a.SetLatestUpdate(&info)

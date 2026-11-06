@@ -97,12 +97,60 @@ func EnsureDeno(dataDir string) (string, error) {
 	return binPath, nil
 }
 
+// RefreshDenoDaily checks for a newer deno on call, then on the same interval
+// as the yt-dlp refresh, until ctx is cancelled.
+func RefreshDenoDaily(ctx context.Context, dataDir string) {
+	refreshDeno(ctx, dataDir)
+	tick := time.NewTicker(ytdlpRefreshEvery)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			refreshDeno(ctx, dataDir)
+		}
+	}
+}
+
+// refreshDeno upgrades the bundled deno when GitHub has a newer release than
+// the installed sidecar version, and installs it when missing. yt-dlp raises
+// its minimum deno version over time, so a deno pinned at first launch would
+// eventually break YouTube extraction. Failures are logged, never fatal.
+func refreshDeno(ctx context.Context, dataDir string) {
+	if _, err := denoAssetName(); err != nil {
+		return
+	}
+	binPath := denoBinaryPath(dataDir)
+	rel, err := fetchLatestRelease(ctx, denoLatestAPI)
+	if err != nil {
+		slog.Warn("deno check: fetch release", "err", err)
+		return
+	}
+	current := readVersionSidecar(binPath)
+	if _, statErr := os.Stat(binPath); statErr == nil && current == rel.TagName {
+		return
+	}
+	if err := os.MkdirAll(DenoBinDir(dataDir), 0o755); err != nil {
+		slog.Warn("deno check: mkdir", "err", err)
+		return
+	}
+	slog.Info("deno upgrade", "from", current, "to", rel.TagName)
+	if err := installDenoRelease(ctx, rel, binPath); err != nil {
+		slog.Warn("deno upgrade failed", "err", err, "binPath", binPath)
+	}
+}
+
 func downloadLatestDeno(ctx context.Context, binPath string) error {
-	assetName, err := denoAssetName()
+	rel, err := fetchLatestRelease(ctx, denoLatestAPI)
 	if err != nil {
 		return err
 	}
-	rel, err := fetchLatestRelease(ctx, denoLatestAPI)
+	return installDenoRelease(ctx, rel, binPath)
+}
+
+func installDenoRelease(ctx context.Context, rel *ghRelease, binPath string) error {
+	assetName, err := denoAssetName()
 	if err != nil {
 		return err
 	}

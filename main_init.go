@@ -36,7 +36,7 @@ func scheduleYtdlpRefresh(ctx context.Context, dataDir string, channelFn, overri
 
 // bootstrapDeno downloads deno on first run and registers <dataDir>/bin with
 // the ytdlp package so every yt-dlp invocation gets PATH augmented with that
-// dir. yt-dlp needs an external JS engine to solve YouTube's n-sig
+// dir. ytdlp.RefreshDenoDaily keeps the binary current afterwards. yt-dlp needs an external JS engine to solve YouTube's n-sig
 // challenges; macOS apps spawned by launchd inherit a minimal PATH that
 // omits /opt/homebrew/bin, so without a bundled deno the youtube extractor
 // silently returns zero formats. A failure here is logged but non-fatal:

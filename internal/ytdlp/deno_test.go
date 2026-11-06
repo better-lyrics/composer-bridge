@@ -3,6 +3,7 @@ package ytdlp
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -297,5 +298,91 @@ func TestEnsureDeno_DoesNotRetryClientError(t *testing.T) {
 	}
 	if attempts != 1 {
 		t.Errorf("attempts: got %d, want 1 (4xx must not retry)", attempts)
+	}
+}
+
+// serveDenoRelease serves a deno release tagged tag whose zip holds stamp,
+// and counts asset downloads.
+func serveDenoRelease(t *testing.T, tag, stamp string) *int {
+	t.Helper()
+	zipBytes := makeDenoZip(t, stamp)
+	downloads := new(int)
+	mux := http.NewServeMux()
+	var baseURL string
+	mux.HandleFunc("/asset", func(w http.ResponseWriter, _ *http.Request) {
+		*downloads++
+		_, _ = w.Write(zipBytes)
+	})
+	mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, _ *http.Request) {
+		assetName, err := denoAssetName()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(ghRelease{
+			TagName: tag,
+			Assets:  []ghAsset{{Name: assetName, DownloadURL: baseURL + "/asset"}},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	baseURL = srv.URL
+	redirectDenoAPI(t, srv.URL+"/releases/latest")
+	return downloads
+}
+
+func installFakeDeno(t *testing.T, dataDir, version string) string {
+	t.Helper()
+	if err := os.MkdirAll(DenoBinDir(dataDir), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	binPath := denoBinaryPath(dataDir)
+	if err := os.WriteFile(binPath, []byte("OLD_DENO"), 0o755); err != nil {
+		t.Fatalf("write fake deno: %v", err)
+	}
+	writeVersionSidecar(binPath, version)
+	return binPath
+}
+
+func TestRefreshDeno_UpgradesStaleBinary(t *testing.T) {
+	shortenRetryBackoff(t)
+	serveDenoRelease(t, "v2.9.6", "NEW_DENO")
+	dataDir := t.TempDir()
+	binPath := installFakeDeno(t, dataDir, "v2.1.0")
+
+	refreshDeno(context.Background(), dataDir)
+
+	if body, _ := os.ReadFile(binPath); string(body) != "NEW_DENO" {
+		t.Errorf("binary: got %q, want NEW_DENO", body)
+	}
+	if got := readVersionSidecar(binPath); got != "v2.9.6" {
+		t.Errorf("sidecar: got %q, want v2.9.6", got)
+	}
+}
+
+func TestRefreshDeno_SkipsDownloadWhenCurrent(t *testing.T) {
+	downloads := serveDenoRelease(t, "v2.9.6", "NEW_DENO")
+	dataDir := t.TempDir()
+	binPath := installFakeDeno(t, dataDir, "v2.9.6")
+
+	refreshDeno(context.Background(), dataDir)
+
+	if *downloads != 0 {
+		t.Errorf("downloaded %d times for an up-to-date deno, want 0", *downloads)
+	}
+	if body, _ := os.ReadFile(binPath); string(body) != "OLD_DENO" {
+		t.Errorf("binary changed: got %q", body)
+	}
+}
+
+func TestRefreshDeno_InstallsWhenMissing(t *testing.T) {
+	shortenRetryBackoff(t)
+	serveDenoRelease(t, "v2.9.6", "NEW_DENO")
+	dataDir := t.TempDir()
+
+	refreshDeno(context.Background(), dataDir)
+
+	if body, _ := os.ReadFile(denoBinaryPath(dataDir)); string(body) != "NEW_DENO" {
+		t.Errorf("binary: got %q, want NEW_DENO", body)
 	}
 }
