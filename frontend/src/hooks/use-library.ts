@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ListTracks } from "../../wailsjs/go/app/App";
 import type { library } from "../../wailsjs/go/models";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
@@ -50,17 +50,23 @@ export function useLibrary(): UseLibraryResult {
   const [loading, setLoading] = useState(raw === null);
   const [error, setError] = useState<Error | null>(null);
 
+  const reloadSeqRef = useRef(0);
   const reload = useCallback(() => {
+    const seq = ++reloadSeqRef.current;
+    const isLatest = () => seq === reloadSeqRef.current;
     setLoading(true);
     ListTracks()
       .then((tracks) => {
+        if (!isLatest()) return;
         setRaw(tracks ?? []);
         setError(null);
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err : new Error(String(err)));
+        if (isLatest()) setError(err instanceof Error ? err : new Error(String(err)));
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (isLatest()) setLoading(false);
+      });
   }, [setRaw]);
 
   useEffect(() => {
