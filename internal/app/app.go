@@ -79,6 +79,7 @@ type App struct {
 	statusEmitter         func(ctx context.Context, name string, data any)
 	unsubStatus           func()
 	quitting              atomic.Int32
+	installingUpdate      atomic.Bool
 	mu                    sync.RWMutex
 	cfg                   config.Config
 	downloadDir           string
@@ -304,6 +305,10 @@ func (a *App) InstallUpdate() error {
 	if info == nil || !info.Available {
 		return errors.New("no update available")
 	}
+	if !a.installingUpdate.CompareAndSwap(false, true) {
+		return errors.New("an update is already being installed")
+	}
+	defer a.installingUpdate.Store(false)
 	ctx, cancel := context.WithTimeout(context.Background(), updateInstallTimeout)
 	defer cancel()
 	if err := updater.ApplyAndRelaunch(ctx, info.Asset); err != nil {
