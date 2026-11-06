@@ -94,9 +94,10 @@ select,
 }
 
 /* Desktop apps keep the arrow cursor on links and buttons; hover state, color,
-   and underline signal interactivity. Anchors inside select-text regions
-   would otherwise inherit the I-beam from .select-text *. */
-.select-text a {
+   and underline signal interactivity. Links and buttons inside select-text
+   regions would otherwise inherit the I-beam from .select-text *. */
+.select-text a,
+.select-text button {
   cursor: default;
 }
 
