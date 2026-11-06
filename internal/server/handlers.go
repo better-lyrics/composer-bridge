@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -87,11 +88,11 @@ type Handlers struct {
 	// existing stream-only behavior.
 	AutoDownload func() bool
 	ThumbDir     string
-	Bridge      string
-	AudioFormat string
-	Emitter     events.Emitter
-	EmitterCtx  context.Context
-	State       *bridgestate.Holder
+	Bridge       string
+	AudioFormat  string
+	Emitter      events.Emitter
+	EmitterCtx   context.Context
+	State        *bridgestate.Holder
 }
 
 // Router returns the bridge's HTTP mux. Wrap with WithCORS at the call site for browser access.
@@ -194,16 +195,25 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	if h.State != nil {
 		h.State.StartDownload(videoID)
 	}
-	h.writeAudioHeaders(w, audioContentType(format), track)
 	tw := &trackingWriter{rw: w}
-	capture := h.openAutoDownloadCapture(videoID, track, format)
-	var streamW io.Writer = tw
-	if capture != nil {
-		streamW = io.MultiWriter(tw, capture.sink)
-	}
+	var capture *autoDownloadCapture
+	streamW := &containerSniffWriter{decide: func(head []byte) io.Writer {
+		ext, cacheable := sniffAudioContainer(head, format)
+		h.writeAudioHeaders(w, audioContentType(ext), track)
+		if cacheable && len(head) > 0 {
+			capture = h.openAutoDownloadCapture(videoID, track, ext)
+		}
+		if capture == nil {
+			return tw
+		}
+		return io.MultiWriter(tw, capture.sink)
+	}}
 	streamCtx, cancel := context.WithTimeout(r.Context(), audioStreamTTL)
 	defer cancel()
 	err := ytdlp.StreamAudio(streamCtx, h.YtdlpPath(), videoID, format, h.cookiesPath(), h.preferPremium(), streamW)
+	if err == nil {
+		err = streamW.flush()
+	}
 	if err == nil {
 		if capture != nil {
 			capture.finalize(videoID, h)
@@ -277,7 +287,7 @@ func (s *safeCacheWriter) Write(p []byte) (int, error) {
 // dir is configured and writable; otherwise nil so the streaming path stays
 // stream-only. The .part suffix uses os.CreateTemp so two concurrent leaders
 // for the same videoID can't collide on the same temp filename.
-func (h *Handlers) openAutoDownloadCapture(videoID string, track *library.Track, format string) *autoDownloadCapture {
+func (h *Handlers) openAutoDownloadCapture(videoID string, track *library.Track, ext string) *autoDownloadCapture {
 	if !h.autoDownload() {
 		return nil
 	}
@@ -292,7 +302,7 @@ func (h *Handlers) openAutoDownloadCapture(videoID string, track *library.Track,
 		slog.Warn("autodl: mkdir download dir failed", "videoID", videoID, "path", root, "err", err)
 		return nil
 	}
-	base := library.AudioFilename(track.Title, videoID, ytdlp.FormatExtension(format))
+	base := library.AudioFilename(track.Title, videoID, ext)
 	part, err := os.CreateTemp(root, base+".*.part")
 	if err != nil {
 		slog.Warn("autodl: create part file failed", "videoID", videoID, "err", err)
@@ -667,6 +677,69 @@ func trackFromInfo(info *ytdlp.Info) library.Track {
 		ThumbnailURL: thumb, IsMusic: isMusic, MusicType: musicType,
 		SourceURL: source, ImportedAt: time.Now().UnixMilli(),
 	}
+}
+
+// containerSniffLen covers every signature sniffAudioContainer checks; MPEG-TS
+// needs two sync bytes one 188-byte packet apart.
+const containerSniffLen = 189
+
+// containerSniffWriter holds back the first bytes of a stream until the
+// container is known, then lets decide commit the response headers and the
+// auto-download file to match it.
+type containerSniffWriter struct {
+	head   []byte
+	out    io.Writer
+	decide func(head []byte) io.Writer
+}
+
+func (s *containerSniffWriter) Write(p []byte) (int, error) {
+	if s.out != nil {
+		return s.out.Write(p)
+	}
+	s.head = append(s.head, p...)
+	if len(s.head) < containerSniffLen {
+		return len(p), nil
+	}
+	return len(p), s.flush()
+}
+
+// flush decides on whatever was buffered; streams shorter than the sniff
+// window reach the client here.
+func (s *containerSniffWriter) flush() error {
+	if s.out != nil {
+		return nil
+	}
+	head := s.head
+	s.head = nil
+	s.out = s.decide(head)
+	if len(head) == 0 {
+		return nil
+	}
+	_, err := s.out.Write(head)
+	return err
+}
+
+// sniffAudioContainer maps the first bytes of a yt-dlp stream to the file
+// extension key it should be served and saved as. The stream path cannot
+// transcode and format selectors fall back across containers, so the bytes
+// decide, not the configured format. cacheable is false for MPEG-TS, which no
+// browser audio element can play from the cache.
+func sniffAudioContainer(head []byte, format string) (ext string, cacheable bool) {
+	configured := ytdlp.FormatExtension(format)
+	switch {
+	case bytes.HasPrefix(head, []byte{0x1A, 0x45, 0xDF, 0xA3}):
+		if configured == "opus" || configured == "webm" {
+			return configured, true
+		}
+		return "webm", true
+	case len(head) >= 8 && string(head[4:8]) == "ftyp":
+		return "m4a", true
+	case bytes.HasPrefix(head, []byte("ID3")), len(head) >= 2 && head[0] == 0xFF && head[1]&0xE0 == 0xE0:
+		return "mp3", true
+	case len(head) >= containerSniffLen && head[0] == 0x47 && head[188] == 0x47:
+		return configured, false
+	}
+	return configured, true
 }
 
 type trackingWriter struct {

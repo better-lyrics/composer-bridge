@@ -671,7 +671,8 @@ func TestAudio_XBridgeVersionUsesStructFieldNotConstant(t *testing.T) {
 }
 
 func TestAudio_YtdlpFailsAfterFirstByteClosesWithoutJSONError(t *testing.T) {
-	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'partial-audio-bytes'; exit 1`))
+	partial := strings.Repeat("partial-audio-bytes ", 20)
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf '`+partial+`'; exit 1`))
 
 	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
 	if err != nil {
@@ -683,8 +684,8 @@ func TestAudio_YtdlpFailsAfterFirstByteClosesWithoutJSONError(t *testing.T) {
 		t.Errorf("status: got %d, want 200 (already committed when bytes flowed)", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if string(body) != "partial-audio-bytes" {
-		t.Errorf("body: got %q, want %q (no JSON error suffix may be appended; would corrupt stream)", string(body), "partial-audio-bytes")
+	if string(body) != partial {
+		t.Errorf("body: got %q, want %q (no JSON error suffix may be appended; would corrupt stream)", string(body), partial)
 	}
 
 	entry := env.lastActivity()
@@ -1397,6 +1398,64 @@ func TestAudio_AutoDownload_TeeStreamWritesFileAndMarksLibrary(t *testing.T) {
 		if strings.HasSuffix(e.Name(), ".part") {
 			t.Errorf("temp .part file leaked: %s", e.Name())
 		}
+	}
+}
+
+// The stream path cannot transcode, and the opus selector can fall back to an
+// mp4 container, so the response type and saved extension must follow the
+// bytes yt-dlp actually produced, not the configured format.
+func TestAudio_RegressionLabelsAndSavesTheContainerYtdlpDelivered(t *testing.T) {
+	cases := []struct {
+		name, format, bytes, wantType, wantExt string
+	}{
+		{"mp3 setting gets webm bytes", "mp3", `\032\105\337\243webm-body`, "audio/webm", "webm"},
+		{"opus setting gets mp4 bytes", "opus", `\000\000\000\030ftypM4A mp4-body`, "audio/mp4", "m4a"},
+		{"opus setting gets webm bytes", "opus", `\032\105\337\243webm-body`, "audio/webm", "opus"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newTestEnv(t, writeFakeYtdlp(t, `printf '`+tc.bytes+`'`))
+			dlDir := seedTrackForAutoDL(t, env, "RgKAFK5djSk", "Hello World", tc.format, true)
+
+			resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			_, _ = io.ReadAll(resp.Body)
+			resp.Body.Close()
+
+			if got := resp.Header.Get("Content-Type"); got != tc.wantType {
+				t.Errorf("Content-Type: got %q, want %q", got, tc.wantType)
+			}
+			want := filepath.Join(dlDir, library.AudioFilename("Hello World", "RgKAFK5djSk", tc.wantExt))
+			got, err := env.lib.GetTrack("RgKAFK5djSk")
+			if err != nil {
+				t.Fatalf("GetTrack: %v", err)
+			}
+			if got.AudioPath != want {
+				t.Errorf("saved path: got %q, want %q", got.AudioPath, want)
+			}
+		})
+	}
+}
+
+func TestAudio_AutoDownload_MpegTSStreamIsNotSaved(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf '\107'; head -c 187 /dev/zero; printf '\107'; head -c 400 /dev/zero`))
+	seedTrackForAutoDL(t, env, "RgKAFK5djSk", "Hello World", "opus", true)
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	_, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	got, err := env.lib.GetTrack("RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("GetTrack: %v", err)
+	}
+	if got.AudioPath != "" {
+		t.Errorf("MPEG-TS stream was saved to %q; no browser can play it from the cache", got.AudioPath)
 	}
 }
 
