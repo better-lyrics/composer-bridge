@@ -326,6 +326,42 @@ func TestRemoveTrack_NotFound(t *testing.T) {
 	}
 }
 
+// Re-importing metadata (POST /import, a cache-miss /audio) builds a track
+// from yt-dlp info with no local file fields. The upsert must not unlink the
+// audio file or cached thumbnail the row already points at.
+func TestInsertTrack_RegressionMetadataUpsertKeepsLocalFiles(t *testing.T) {
+	lib, _ := openTempLibrary(t)
+	first := sampleTrack("dQw4w9WgXcQ", 1000)
+	if err := lib.InsertTrack(&first); err != nil {
+		t.Fatalf("InsertTrack: %v", err)
+	}
+	if err := lib.MarkAudioDownloaded("dQw4w9WgXcQ", "/music/song.opus", 4096); err != nil {
+		t.Fatalf("MarkAudioDownloaded: %v", err)
+	}
+
+	reimport := sampleTrack("dQw4w9WgXcQ", 2000)
+	reimport.ThumbPath = ""
+	reimport.Title = "Fresh Title"
+	if err := lib.InsertTrack(&reimport); err != nil {
+		t.Fatalf("re-import InsertTrack: %v", err)
+	}
+
+	got, err := lib.GetTrack("dQw4w9WgXcQ")
+	if err != nil {
+		t.Fatalf("GetTrack: %v", err)
+	}
+	if got.AudioPath != "/music/song.opus" || got.AudioSize != 4096 || got.ThumbPath != first.ThumbPath {
+		t.Errorf("local files after re-import: audio %q (%d), thumb %q; want /music/song.opus (4096), %q",
+			got.AudioPath, got.AudioSize, got.ThumbPath, first.ThumbPath)
+	}
+	if got.Title != "Fresh Title" {
+		t.Errorf("Title: got %q, want metadata refreshed", got.Title)
+	}
+	if reimport.AudioPath != got.AudioPath || reimport.ThumbPath != got.ThumbPath {
+		t.Errorf("InsertTrack must report the stored local fields back on t: got audio %q thumb %q", reimport.AudioPath, reimport.ThumbPath)
+	}
+}
+
 func TestInsertTrack_EmptyOptionalFields(t *testing.T) {
 	lib, _ := openTempLibrary(t)
 
