@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { DetailPanel } from "@/views/library/detail-panel";
 import { useUIStore } from "@/stores/ui-store";
@@ -74,5 +74,23 @@ describe("DetailPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
     expect(bindings.RemoveTrack).not.toHaveBeenCalled();
     expect(useUIStore.getState().selectedVideoId).toBe("RgKAFK5djSk");
+  });
+
+  it("regression: a download that finishes after switching tracks does not replace the shown track", async () => {
+    let finishDownload: (t: ReturnType<typeof track>) => void = () => {};
+    bindings.DownloadAudio.mockImplementation(
+      () => new Promise((resolve) => (finishDownload = resolve)),
+    );
+    bindings.GetTrack.mockImplementation((id: string) =>
+      Promise.resolve(id === "ZEcqHA7dbwM" ? track({ video_id: "ZEcqHA7dbwM", title: "Second" }) : track()),
+    );
+    render(<DetailPanel onRemoved={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Download audio/i }));
+
+    act(() => useUIStore.setState({ selectedVideoId: "ZEcqHA7dbwM" }));
+    await screen.findByRole("heading", { name: "Second" });
+    await act(async () => finishDownload(track({ audio_path: "/music/a.opus" })));
+
+    expect(screen.getByRole("heading", { name: "Second" })).toBeTruthy();
   });
 });

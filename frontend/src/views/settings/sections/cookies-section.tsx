@@ -46,6 +46,7 @@ interface UploadAreaProps {
   draft: string;
   setDraft: (value: string) => void;
   busy: boolean;
+  uploading: boolean;
   uploadError: string | null;
   onFile: (file: File) => void;
   onPasteUpload: () => void;
@@ -55,6 +56,7 @@ const UploadArea: React.FC<UploadAreaProps> = ({
   draft,
   setDraft,
   busy,
+  uploading,
   uploadError,
   onFile,
   onPasteUpload,
@@ -80,7 +82,7 @@ const UploadArea: React.FC<UploadAreaProps> = ({
           }
         }}
         className={cn(
-          "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-composer-border bg-composer-input px-4 py-6 text-xs text-composer-text-muted transition-colors",
+          "flex flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-composer-border bg-composer-input px-4 py-6 text-xs text-composer-text-muted transition-colors",
           "hover:border-composer-accent hover:text-composer-text",
           busy && "pointer-events-none opacity-50",
         )}
@@ -106,7 +108,7 @@ const UploadArea: React.FC<UploadAreaProps> = ({
         <p className="mt-2 text-xs text-composer-error-text select-text">{uploadError}</p>
       )}
       <details className="group mt-3">
-        <summary className="flex cursor-pointer list-none items-center gap-1 text-xs text-composer-text-muted select-none hover:text-composer-text [&::-webkit-details-marker]:hidden">
+        <summary className="flex list-none items-center gap-1 text-xs text-composer-text-muted select-none hover:text-composer-text [&::-webkit-details-marker]:hidden">
           <IconChevronRight size={12} className="transition-transform group-open:rotate-90" />
           Or paste contents
         </summary>
@@ -127,7 +129,7 @@ const UploadArea: React.FC<UploadAreaProps> = ({
               disabled={busy || !draft.trim()}
               onClick={onPasteUpload}
             >
-              {busy ? "Uploading…" : "Upload"}
+              {uploading ? "Uploading…" : "Upload"}
             </Button>
           </div>
         </div>
@@ -143,7 +145,8 @@ const CookiesSection: React.FC = () => {
   const [draft, setDraft] = useState("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [verification, setVerification] = useState<ytdlp.VerifyResult | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<"upload" | "verify" | "other" | null>(null);
+  const busy = busyAction !== null;
 
   const refresh = () => {
     CookiesState()
@@ -157,7 +160,7 @@ const CookiesSection: React.FC = () => {
     if (!draft.trim()) {
       return;
     }
-    setBusy(true);
+    setBusyAction("upload");
     setUploadError(null);
     try {
       await UploadCookies(draft);
@@ -167,13 +170,13 @@ const CookiesSection: React.FC = () => {
     } catch (err: unknown) {
       setUploadError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
   const handleFile = async (file: File) => {
     setUploadError(null);
-    setBusy(true);
+    setBusyAction("upload");
     try {
       const content = await file.text();
       await UploadCookies(content);
@@ -183,12 +186,12 @@ const CookiesSection: React.FC = () => {
     } catch (err: unknown) {
       setUploadError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
   const handleRemove = async () => {
-    setBusy(true);
+    setBusyAction("other");
     try {
       await RemoveCookies();
       setVerification(null);
@@ -196,36 +199,36 @@ const CookiesSection: React.FC = () => {
     } catch (err: unknown) {
       console.error("RemoveCookies failed", err);
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
   const handleToggle = async (enabled: boolean) => {
-    setBusy(true);
+    setBusyAction("other");
     try {
       await SetCookiesEnabled(enabled);
       refresh();
     } catch (err: unknown) {
       console.error("SetCookiesEnabled failed", err);
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
   const handlePreferPremium = async (enabled: boolean) => {
-    setBusy(true);
+    setBusyAction("other");
     try {
       await SetPreferPremiumAudio(enabled);
       refresh();
     } catch (err: unknown) {
       console.error("SetPreferPremiumAudio failed", err);
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
   const handleVerify = async () => {
-    setBusy(true);
+    setBusyAction("verify");
     try {
       const result = await VerifyCookies();
       setVerification(result);
@@ -237,7 +240,7 @@ const CookiesSection: React.FC = () => {
         detail: err instanceof Error ? err.message : String(err),
       } as ytdlp.VerifyResult);
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
@@ -305,6 +308,7 @@ const CookiesSection: React.FC = () => {
           draft={draft}
           setDraft={setDraft}
           busy={busy}
+          uploading={busyAction === "upload"}
           uploadError={uploadError}
           onFile={(file) => {
             void handleFile(file);
@@ -326,7 +330,7 @@ const CookiesSection: React.FC = () => {
                 void handleVerify();
               }}
             >
-              {busy ? "Verifying…" : "Verify now"}
+              {busyAction === "verify" ? "Verifying…" : "Verify now"}
             </Button>
           </SettingRow>
         )}

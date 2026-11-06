@@ -15,6 +15,8 @@ export type SaveStatus = "idle" | "saving" | "saved" | "error";
 interface UseConfigResult {
   config: config.Config | null;
   loaded: boolean;
+  loadError: string | null;
+  retryLoad: () => void;
   saveStatus: SaveStatus;
   update<K extends keyof config.Config>(key: K, value: config.Config[K]): void;
 }
@@ -23,24 +25,31 @@ export function useConfig(): UseConfigResult {
   const cfg = useUIStore((s) => s.bridgeConfig);
   const setBridgeConfig = useUIStore((s) => s.setBridgeConfig);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const cfgRef = useRef<config.Config | null>(cfg);
   cfgRef.current = cfg;
 
   useEffect(() => {
     if (cfg !== null) return;
     let cancelled = false;
+    setLoadError(null);
     GetConfig()
       .then((loaded) => {
         if (cancelled) return;
         setBridgeConfig(loaded);
       })
-      .catch((err) => {
-        if (!cancelled) console.error("GetConfig failed", err);
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        console.error("GetConfig failed", err);
+        setLoadError(err instanceof Error ? err.message : String(err));
       });
     return () => {
       cancelled = true;
     };
-  }, [cfg, setBridgeConfig]);
+  }, [cfg, setBridgeConfig, loadAttempt]);
+
+  const retryLoad = useCallback(() => setLoadAttempt((n) => n + 1), []);
 
   const saveSeqRef = useRef(0);
   const persist = useDebouncedCallback((next: config.Config) => {
@@ -67,5 +76,5 @@ export function useConfig(): UseConfigResult {
     [persist, setBridgeConfig],
   );
 
-  return { config: cfg, loaded: cfg !== null, saveStatus, update };
+  return { config: cfg, loaded: cfg !== null, loadError, retryLoad, saveStatus, update };
 }

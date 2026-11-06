@@ -1,7 +1,9 @@
 package bridge_test
 
 import (
+	"io"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -189,5 +191,44 @@ func TestStop_ClearsPort(t *testing.T) {
 	}
 	if got := b.Port(); got != 0 {
 		t.Errorf("Port after Stop: got %d, want 0", got)
+	}
+}
+
+// An /audio stream can stay open for minutes. Turning the server off must
+// still succeed (so the off state is persisted) and end the open request.
+func TestStop_RegressionOpenStreamIsClosedAndStopSucceeds(t *testing.T) {
+	t.Cleanup(bridge.SetShutdownTimeout(50 * time.Millisecond))
+	entered := make(chan struct{})
+	cancelled := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/stream", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		close(entered)
+		<-r.Context().Done()
+		time.Sleep(100 * time.Millisecond) // cleanup work, like discarding a .part file
+		close(cancelled)
+	})
+	holder := bridgestate.NewHolder()
+	b := bridge.New(holder, func() *http.Server { return &http.Server{Handler: mux} })
+	if err := b.Start(0); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	go func() {
+		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(b.Port()) + "/stream")
+		if err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+		}
+	}()
+	<-entered
+
+	if err := b.Stop(); err != nil {
+		t.Fatalf("Stop with an open stream: %v", err)
+	}
+	select {
+	case <-cancelled:
+	default:
+		t.Fatal("Stop returned before the open request finished its cleanup")
 	}
 }

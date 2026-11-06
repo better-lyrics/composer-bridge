@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { BridgeVersion, YtdlpVersion } from "../../../wailsjs/go/app/App";
+import { Button } from "@/components/button";
 import { useConfig } from "@/hooks/use-config";
 import { BehaviorSection } from "@/views/settings/sections/behavior-section";
 import { CookiesSection } from "@/views/settings/sections/cookies-section";
@@ -22,7 +23,7 @@ const STATUS_LABELS: Record<string, string> = {
 // -- View ---------------------------------------------------------------------
 
 const SettingsView: React.FC = () => {
-  const { config, loaded, saveStatus, update } = useConfig();
+  const { config, loaded, loadError, retryLoad, saveStatus, update } = useConfig();
   const [bridgeVersion, setBridgeVersion] = useState("");
   const [ytdlpVersion, setYtdlpVersion] = useState("");
 
@@ -41,6 +42,16 @@ const SettingsView: React.FC = () => {
         <header className="border-b border-composer-border px-6 py-4">
           <h1 className="text-xl font-semibold tracking-tight text-composer-text">Settings</h1>
         </header>
+        {loadError && (
+          <div className="flex flex-col items-start gap-3 px-6 py-6">
+            <span className="text-xs text-composer-error-text select-text">
+              Could not load settings: {loadError}
+            </span>
+            <Button variant="secondary" size="md" onClick={retryLoad}>
+              Retry
+            </Button>
+          </div>
+        )}
       </div>
     );
   }

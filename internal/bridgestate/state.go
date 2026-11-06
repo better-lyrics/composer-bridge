@@ -4,7 +4,10 @@
 // mutate through a Holder so the state stays consistent across goroutines.
 package bridgestate
 
-import "sync"
+import (
+	"slices"
+	"sync"
+)
 
 // ServerStatus describes the HTTP server lifecycle.
 type ServerStatus string
@@ -41,6 +44,7 @@ type State struct {
 type Holder struct {
 	mu      sync.RWMutex
 	state   State
+	active  []string
 	subsMu  sync.Mutex
 	subs    map[int]func(State)
 	nextSub int
@@ -75,9 +79,11 @@ func (h *Holder) SetServer(s ServerStatus) ServerStatus {
 	return prev
 }
 
-// StartDownload marks a download as active and records its video ID.
+// StartDownload marks a download as active and records its video ID. Downloads
+// can overlap; the most recently started one is reported.
 func (h *Holder) StartDownload(videoID string) {
 	h.mu.Lock()
+	h.active = append(h.active, videoID)
 	h.state.Download = DownloadActive
 	h.state.DownloadVideoID = videoID
 	snap := h.state
@@ -85,16 +91,22 @@ func (h *Holder) StartDownload(videoID string) {
 	h.notify(snap)
 }
 
-// EndDownload resets the download to idle and clears the video ID. When
-// errMsg is non-empty it is stored as the most recent error so callers
-// can surface it in the UI.
-func (h *Holder) EndDownload(errMsg string) {
+// EndDownload marks videoID's download as finished. The state stays active
+// while other downloads are still running. LastError tracks the outcome of the
+// most recent download: errMsg on failure, empty on success, so one failed
+// download does not pin the error state.
+func (h *Holder) EndDownload(videoID, errMsg string) {
 	h.mu.Lock()
-	h.state.Download = DownloadIdle
-	h.state.DownloadVideoID = ""
-	if errMsg != "" {
-		h.state.LastError = errMsg
+	if i := slices.Index(h.active, videoID); i >= 0 {
+		h.active = slices.Delete(h.active, i, i+1)
 	}
+	if len(h.active) == 0 {
+		h.state.Download = DownloadIdle
+		h.state.DownloadVideoID = ""
+	} else {
+		h.state.DownloadVideoID = h.active[len(h.active)-1]
+	}
+	h.state.LastError = errMsg
 	snap := h.state
 	h.mu.Unlock()
 	h.notify(snap)

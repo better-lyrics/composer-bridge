@@ -183,3 +183,20 @@ func TestSetDenoBinDir_EmptyDoesNotPrependEmptyEntry(t *testing.T) {
 		t.Errorf("PATH %q starts with separator, indicating an empty prepended entry", got)
 	}
 }
+
+// Windows spells the variable "Path". os/exec dedups env keys
+// case-insensitively there and keeps the last one, so appending a separate
+// "PATH=" entry would replace the whole system Path with the deno dir.
+func TestAugmentPATH_RegressionWindowsMixedCaseKeyIsAugmentedInPlace(t *testing.T) {
+	prev := envKeysCaseInsensitive
+	envKeysCaseInsensitive = true
+	t.Cleanup(func() { envKeysCaseInsensitive = prev })
+	sep := string(os.PathListSeparator)
+
+	got := augmentPATH([]string{"Path=/sys", "HOME=/h"}, []string{"/deno"})
+
+	want := []string{"Path=/deno" + sep + "/sys", "HOME=/h"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

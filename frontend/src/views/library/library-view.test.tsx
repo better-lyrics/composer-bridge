@@ -90,7 +90,7 @@ describe("LibraryView", () => {
     ]);
     render(<LibraryView />);
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
-    fireEvent.click(screen.getByText("Alpha"));
+    fireEvent.click(screen.getByRole("button", { name: "Show details for Alpha" }));
     expect(useUIStore.getState().selectedVideoId).toBe("aaaaaaaaaaa");
   });
 

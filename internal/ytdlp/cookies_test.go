@@ -6,25 +6,23 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-func TestBuildExtractorArgs_DefaultExcludesWebMusic(t *testing.T) {
+func TestBuildExtractorArgs_RegressionDefaultLeavesClientChoiceToYtdlp(t *testing.T) {
 	got := BuildExtractorArgs(false)
-	if strings.Contains(got, "web_music") {
-		t.Errorf("default args should not include web_music, got %q", got)
+	if strings.Contains(got, "player_client") {
+		t.Errorf("default args must not pin player clients (pinned android_vr,web_safari started failing with HTTP 403), got %q", got)
 	}
 	if !strings.Contains(got, "player_skip=configs,initial_data") {
 		t.Errorf("default args should include player_skip, got %q", got)
 	}
 }
 
-func TestBuildExtractorArgs_PreferPremiumPrependsWebMusic(t *testing.T) {
+func TestBuildExtractorArgs_PreferPremiumAddsWebMusicToDefaults(t *testing.T) {
 	got := BuildExtractorArgs(true)
-	if !strings.HasPrefix(got, "youtube:player_client=web_music,") {
-		t.Errorf("prefer-premium args should start with web_music, got %q", got)
-	}
-	if !strings.Contains(got, "android_vr") || !strings.Contains(got, "web_safari") {
-		t.Errorf("prefer-premium args should still include fallback clients, got %q", got)
+	if !strings.Contains(got, "player_client=default,web_music") {
+		t.Errorf("prefer-premium args should add web_music on top of yt-dlp's default clients, got %q", got)
 	}
 }
 
@@ -338,6 +336,60 @@ echo "{}"
 	}
 	if res.Authenticated {
 		t.Errorf("Authenticated = true on rotated cookies")
+	}
+}
+
+// yt-dlp logs "Found YouTube account cookies" at startup and only reports a
+// rotated session as a warning after the first page request, so the probe
+// must keep warnings on and read past the auth marker.
+func TestVerifyCookies_RegressionRotatedAfterAuthMarker(t *testing.T) {
+	dir := t.TempDir()
+	cookies := filepath.Join(dir, "cookies.txt")
+	if err := os.WriteFile(cookies, []byte("# Netscape HTTP Cookie File\n"), 0o600); err != nil {
+		t.Fatalf("seed cookies: %v", err)
+	}
+	script := writeFakeYtdlp(t, `
+for a in "$@"; do [ "$a" = --no-warnings ] && exit 3; done
+echo "[debug] Found YouTube account cookies" >&2
+echo "[youtube] dQw4w9WgXcQ: Downloading webpage" >&2
+echo "WARNING: [youtube] The provided YouTube account cookies are no longer valid. They have likely been rotated in the browser as a security measure." >&2
+echo "[youtube] dQw4w9WgXcQ: Downloading tv samsung player API JSON" >&2
+echo "{}"
+`)
+	res, err := VerifyCookies(context.Background(), script, cookies)
+	if err != nil {
+		t.Fatalf("VerifyCookies: %v", err)
+	}
+	if !res.Rotated || res.Authenticated {
+		t.Errorf("got Rotated=%v Authenticated=%v (%q), want rotated", res.Rotated, res.Authenticated, res.Detail)
+	}
+}
+
+func TestVerifyCookies_AuthenticatedOnceFirstRequestPasses(t *testing.T) {
+	dir := t.TempDir()
+	cookies := filepath.Join(dir, "cookies.txt")
+	if err := os.WriteFile(cookies, []byte("# Netscape HTTP Cookie File\n"), 0o600); err != nil {
+		t.Fatalf("seed cookies: %v", err)
+	}
+	// Like the real binary, a child process keeps stderr open after the probe
+	// kills the parent.
+	script := writeFakeYtdlp(t, `
+sleep 30 &
+echo "[debug] Found YouTube account cookies" >&2
+echo "[youtube] dQw4w9WgXcQ: Downloading webpage" >&2
+echo "[youtube] dQw4w9WgXcQ: Downloading tv samsung player API JSON" >&2
+wait
+`)
+	start := time.Now()
+	res, err := VerifyCookies(context.Background(), script, cookies)
+	if err != nil {
+		t.Fatalf("VerifyCookies: %v", err)
+	}
+	if !res.Authenticated || res.Rotated {
+		t.Errorf("got Authenticated=%v Rotated=%v (%q), want authenticated", res.Authenticated, res.Rotated, res.Detail)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Errorf("probe waited for yt-dlp to exit instead of stopping after the first request")
 	}
 }
 

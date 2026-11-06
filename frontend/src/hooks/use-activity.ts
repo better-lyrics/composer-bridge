@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { RecentActivity } from "../../wailsjs/go/app/App";
 import type { activity } from "../../wailsjs/go/models";
 import { useUIStore } from "@/stores/ui-store";
+import { mergeActivitySnapshot } from "@/utils/merge-activity";
 
 // -- Public -------------------------------------------------------------------
 
@@ -16,8 +17,7 @@ interface UseActivityResult {
 // view. Reads from the shared store so live events captured by
 // useActivityStream (mounted at the App root) are visible immediately; the
 // initial RecentActivity fetch backfills history on first mount and on limit
-// changes so the SQLite snapshot wins when it differs from the in-memory
-// buffer.
+// changes, merged with any live rows buffered meanwhile.
 export function useActivity(limit: number): UseActivityResult {
   const entries = useUIStore((s) => s.activityEntries);
   const setEntries = useUIStore((s) => s.setActivityEntries);
@@ -30,7 +30,7 @@ export function useActivity(limit: number): UseActivityResult {
     RecentActivity(limit)
       .then((rows) => {
         if (cancelled) return;
-        setEntries(rows ?? []);
+        setEntries(mergeActivitySnapshot(rows ?? [], useUIStore.getState().activityEntries ?? []));
         setError(null);
       })
       .catch((err: unknown) => {

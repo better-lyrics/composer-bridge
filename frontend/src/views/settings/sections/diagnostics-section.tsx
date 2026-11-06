@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   BuildDiagnosticReport,
   OpenLogFile,
@@ -8,6 +7,7 @@ import type { config } from "../../../../wailsjs/go/models";
 import { Button } from "@/components/button";
 import { Select } from "@/components/select";
 import { SettingRow } from "@/components/setting-row";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 
 // -- Interfaces ---------------------------------------------------------------
 
@@ -19,7 +19,7 @@ interface DiagnosticsSectionProps {
 // -- Component ----------------------------------------------------------------
 
 const DiagnosticsSection: React.FC<DiagnosticsSectionProps> = ({ config, update }) => {
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopyToClipboard();
 
   const openLog = async () => {
     try {
@@ -32,10 +32,7 @@ const DiagnosticsSection: React.FC<DiagnosticsSectionProps> = ({ config, update 
 
   const copyReport = async () => {
     try {
-      const report = await BuildDiagnosticReport();
-      await navigator.clipboard.writeText(report);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      await copy(await BuildDiagnosticReport());
     } catch (err: unknown) {
       console.error("BuildDiagnosticReport failed", err);
     }

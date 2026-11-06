@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   IconBrandYoutube,
   IconCheck,
+  IconCopy,
   IconDownload,
   IconExternalLink,
   IconLoader2,
@@ -19,6 +20,7 @@ import type { library } from "../../../wailsjs/go/models";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
 import { Button } from "@/components/button";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useUIStore } from "@/stores/ui-store";
 import { cn } from "@/utils/cn";
 import { formatDuration } from "@/utils/format-time";
@@ -46,6 +48,22 @@ const MetaRow: React.FC<{ label: string; value: React.ReactNode; mono?: boolean 
   </>
 );
 
+const CopyVideoId: React.FC<{ videoId: string }> = ({ videoId }) => {
+  const { copied, copy } = useCopyToClipboard();
+  return (
+    <button
+      type="button"
+      onClick={() => void copy(videoId)}
+      title="Copy video ID"
+      aria-label={copied ? "Copied video ID" : `Copy video ID ${videoId}`}
+      className="inline-flex items-center gap-1.5 text-composer-text transition-colors hover:text-composer-accent"
+    >
+      {videoId}
+      {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+    </button>
+  );
+};
+
 // -- Component ----------------------------------------------------------------
 
 const TRANSITION_MS = 220;
@@ -55,7 +73,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
   const setSelected = useUIStore((s) => s.setSelectedVideoId);
   const [track, setTrack] = useState<library.Track | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const activeId = selectedVideoId ?? track?.video_id ?? "";
   const downloading = useUIStore((s) => activeId !== "" && s.activeDownloads.has(activeId));
   const beginDownload = useUIStore((s) => s.beginDownload);
@@ -66,7 +84,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
 
   useEffect(() => {
     if (!selectedVideoId) return;
-    setDownloadError(null);
+    setActionError(null);
     setTrack(null);
     let cancelled = false;
     GetTrack(selectedVideoId)
@@ -105,40 +123,51 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
 
   const handleClose = () => setSelected(null);
 
+  const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
+  const stillShowing = (videoId: string) => useUIStore.getState().selectedVideoId === videoId;
+
   const openComposer = async () => {
     if (!track) return;
-    const url = await OpenInComposer(track.video_id);
-    BrowserOpenURL(url);
+    try {
+      BrowserOpenURL(await OpenInComposer(track.video_id));
+    } catch (err: unknown) {
+      setActionError(errorMessage(err));
+    }
   };
 
   const openYouTube = async () => {
     if (!track) return;
-    const url = await OpenInYouTube(track.video_id);
-    BrowserOpenURL(url);
+    try {
+      BrowserOpenURL(await OpenInYouTube(track.video_id));
+    } catch (err: unknown) {
+      setActionError(errorMessage(err));
+    }
   };
 
   const downloadAudio = async () => {
     if (!track) return;
-    beginDownload(track.video_id);
-    setDownloadError(null);
+    const videoId = track.video_id;
+    beginDownload(videoId);
+    setActionError(null);
     try {
-      const refreshed = await DownloadAudio(track.video_id);
-      setTrack(refreshed);
+      const refreshed = await DownloadAudio(videoId);
+      if (stillShowing(videoId)) setTrack(refreshed);
     } catch (err: unknown) {
-      setDownloadError(err instanceof Error ? err.message : String(err));
+      if (stillShowing(videoId)) setActionError(errorMessage(err));
     } finally {
-      endDownload(track.video_id);
+      endDownload(videoId);
     }
   };
 
   const handleRemoveConfirmed = async () => {
     if (!track) return;
+    setConfirmOpen(false);
     try {
       await RemoveTrack(track.video_id);
     } catch (err: unknown) {
-      console.error("RemoveTrack failed", err);
+      setActionError(`Could not remove this track: ${errorMessage(err)}`);
+      return;
     }
-    setConfirmOpen(false);
     setSelected(null);
     onRemoved();
   };
@@ -198,7 +227,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
               <MetaRow label="Duration" value={formatDuration(track.duration_sec)} mono />
               {track.release_year > 0 && <MetaRow label="Released" value={track.release_year} />}
               {track.music_type && <MetaRow label="Type" value={track.music_type} />}
-              <MetaRow label="Video ID" value={track.video_id} mono />
+              <MetaRow label="Video ID" value={<CopyVideoId videoId={track.video_id} />} mono />
             </dl>
             <div className="flex flex-col gap-2">
               <Button variant="primary" size="md" hasIcon onClick={openComposer}>
@@ -221,8 +250,8 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ onRemoved }) => {
                 )}
                 {downloading ? "Downloading…" : isDownloaded ? "Audio downloaded" : "Download audio"}
               </Button>
-              {downloadError && (
-                <span className="text-xs text-composer-error-text select-text">{downloadError}</span>
+              {actionError && (
+                <span className="text-xs text-composer-error-text select-text">{actionError}</span>
               )}
               <Button variant="secondary" size="md" hasIcon onClick={openYouTube}>
                 <IconBrandYoutube size={14} />

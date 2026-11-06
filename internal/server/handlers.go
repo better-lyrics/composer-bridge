@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -87,11 +88,11 @@ type Handlers struct {
 	// existing stream-only behavior.
 	AutoDownload func() bool
 	ThumbDir     string
-	Bridge      string
-	AudioFormat string
-	Emitter     events.Emitter
-	EmitterCtx  context.Context
-	State       *bridgestate.Holder
+	Bridge       string
+	AudioFormat  func() string
+	Emitter      events.Emitter
+	EmitterCtx   func() context.Context
+	State        *bridgestate.Holder
 }
 
 // Router returns the bridge's HTTP mux. Wrap with WithCORS at the call site for browser access.
@@ -186,40 +187,57 @@ func (h *Handlers) Audio(w http.ResponseWriter, r *http.Request) {
 	if served {
 		return
 	}
-	format := h.AudioFormat
-	if format == "" {
-		format = "opus"
+	format := "opus"
+	if h.AudioFormat != nil && h.AudioFormat() != "" {
+		format = h.AudioFormat()
 	}
 	actID := h.startActivity(activity.KindAudioDownload, videoID)
 	if h.State != nil {
 		h.State.StartDownload(videoID)
 	}
-	h.writeAudioHeaders(w, audioContentType(format), track)
 	tw := &trackingWriter{rw: w}
-	capture := h.openAutoDownloadCapture(videoID, track, format)
-	var streamW io.Writer = tw
-	if capture != nil {
-		streamW = io.MultiWriter(tw, capture.sink)
-	}
+	var capture *autoDownloadCapture
+	streamW := &containerSniffWriter{decide: func(head []byte) io.Writer {
+		ext, cacheable := sniffAudioContainer(head, format)
+		h.writeAudioHeaders(w, audioContentType(ext), track)
+		if cacheable && len(head) > 0 {
+			capture = h.openAutoDownloadCapture(videoID, track, ext)
+		}
+		if capture == nil {
+			return tw
+		}
+		return io.MultiWriter(tw, capture.sink)
+	}}
 	streamCtx, cancel := context.WithTimeout(r.Context(), audioStreamTTL)
 	defer cancel()
 	err := ytdlp.StreamAudio(streamCtx, h.YtdlpPath(), videoID, format, h.cookiesPath(), h.preferPremium(), streamW)
+	if err == nil {
+		err = streamW.flush()
+	}
 	if err == nil {
 		if capture != nil {
 			capture.finalize(videoID, h)
 		}
 		h.endActivity(actID, activity.StatusOK, "")
 		if h.State != nil {
-			h.State.EndDownload("")
+			h.State.EndDownload(videoID, "")
 		}
 		return
 	}
 	if capture != nil {
 		capture.discard()
 	}
+	if r.Context().Err() != nil {
+		// The client went away (seek, skip, closed tab): not a bridge failure.
+		h.endActivity(actID, activity.StatusError, videoID+": cancelled by client")
+		if h.State != nil {
+			h.State.EndDownload(videoID, "")
+		}
+		return
+	}
 	h.endActivity(actID, activity.StatusError, fmt.Sprintf("%s: %v", videoID, err))
 	if h.State != nil {
-		h.State.EndDownload(fmt.Sprintf("%s: %v", videoID, err))
+		h.State.EndDownload(videoID, fmt.Sprintf("%s: %v", videoID, err))
 	}
 	if tw.wrote {
 		slog.Warn("audio stream failed mid-flight", "videoID", videoID, "err", err)
@@ -269,7 +287,7 @@ func (s *safeCacheWriter) Write(p []byte) (int, error) {
 // dir is configured and writable; otherwise nil so the streaming path stays
 // stream-only. The .part suffix uses os.CreateTemp so two concurrent leaders
 // for the same videoID can't collide on the same temp filename.
-func (h *Handlers) openAutoDownloadCapture(videoID string, track *library.Track, format string) *autoDownloadCapture {
+func (h *Handlers) openAutoDownloadCapture(videoID string, track *library.Track, ext string) *autoDownloadCapture {
 	if !h.autoDownload() {
 		return nil
 	}
@@ -284,7 +302,7 @@ func (h *Handlers) openAutoDownloadCapture(videoID string, track *library.Track,
 		slog.Warn("autodl: mkdir download dir failed", "videoID", videoID, "path", root, "err", err)
 		return nil
 	}
-	base := library.AudioFilename(track.Title, videoID, ytdlp.FormatExtension(format))
+	base := library.AudioFilename(track.Title, videoID, ext)
 	part, err := os.CreateTemp(root, base+".*.part")
 	if err != nil {
 		slog.Warn("autodl: create part file failed", "videoID", videoID, "err", err)
@@ -446,10 +464,10 @@ func (h *Handlers) resolveTrackForAudio(ctx context.Context, videoID string) *li
 // library view can refresh without polling. Silent no-op when no Emitter is
 // wired (e.g., in unit tests).
 func (h *Handlers) emitLibraryUpdate(videoID string) {
-	if h.Emitter == nil || h.EmitterCtx == nil {
+	if h.Emitter == nil {
 		return
 	}
-	h.Emitter.Emit(h.EmitterCtx, "library:update", map[string]string{"video_id": videoID})
+	h.Emitter.Emit(h.emitterCtx(), "library:update", map[string]string{"video_id": videoID})
 }
 
 // Import fetches metadata for the body's video_id, inserts a track row, and returns the inserted record. Wrapped in an activity row.
@@ -619,6 +637,15 @@ func (h *Handlers) endActivity(id int64, st activity.Status, msg string) {
 	h.emitActivity(id)
 }
 
+// emitterCtx returns the Wails runtime context, or nil before startup; the
+// emitter drops events sent with a nil context.
+func (h *Handlers) emitterCtx() context.Context {
+	if h.EmitterCtx == nil {
+		return nil
+	}
+	return h.EmitterCtx()
+}
+
 // emitActivity publishes the latest snapshot of the activity row to the
 // frontend. Fails silently when no Emitter is wired (tests, headless boot).
 // Looks the row up by id rather than constructing it inline so a single source
@@ -635,7 +662,7 @@ func (h *Handlers) emitActivity(id int64) {
 	}
 	for _, e := range entries {
 		if e.ID == id {
-			h.Emitter.Emit(h.EmitterCtx, "activity:update", e)
+			h.Emitter.Emit(h.emitterCtx(), "activity:update", e)
 			return
 		}
 	}
@@ -659,6 +686,69 @@ func trackFromInfo(info *ytdlp.Info) library.Track {
 		ThumbnailURL: thumb, IsMusic: isMusic, MusicType: musicType,
 		SourceURL: source, ImportedAt: time.Now().UnixMilli(),
 	}
+}
+
+// containerSniffLen covers every signature sniffAudioContainer checks; MPEG-TS
+// needs two sync bytes one 188-byte packet apart.
+const containerSniffLen = 189
+
+// containerSniffWriter holds back the first bytes of a stream until the
+// container is known, then lets decide commit the response headers and the
+// auto-download file to match it.
+type containerSniffWriter struct {
+	head   []byte
+	out    io.Writer
+	decide func(head []byte) io.Writer
+}
+
+func (s *containerSniffWriter) Write(p []byte) (int, error) {
+	if s.out != nil {
+		return s.out.Write(p)
+	}
+	s.head = append(s.head, p...)
+	if len(s.head) < containerSniffLen {
+		return len(p), nil
+	}
+	return len(p), s.flush()
+}
+
+// flush decides on whatever was buffered; streams shorter than the sniff
+// window reach the client here.
+func (s *containerSniffWriter) flush() error {
+	if s.out != nil {
+		return nil
+	}
+	head := s.head
+	s.head = nil
+	s.out = s.decide(head)
+	if len(head) == 0 {
+		return nil
+	}
+	_, err := s.out.Write(head)
+	return err
+}
+
+// sniffAudioContainer maps the first bytes of a yt-dlp stream to the file
+// extension key it should be served and saved as. The stream path cannot
+// transcode and format selectors fall back across containers, so the bytes
+// decide, not the configured format. cacheable is false for MPEG-TS, which no
+// browser audio element can play from the cache.
+func sniffAudioContainer(head []byte, format string) (ext string, cacheable bool) {
+	configured := ytdlp.FormatExtension(format)
+	switch {
+	case bytes.HasPrefix(head, []byte{0x1A, 0x45, 0xDF, 0xA3}):
+		if configured == "opus" || configured == "webm" {
+			return configured, true
+		}
+		return "webm", true
+	case len(head) >= 8 && string(head[4:8]) == "ftyp":
+		return "m4a", true
+	case bytes.HasPrefix(head, []byte("ID3")), len(head) >= 2 && head[0] == 0xFF && head[1]&0xE0 == 0xE0:
+		return "mp3", true
+	case len(head) >= containerSniffLen && head[0] == 0x47 && head[188] == 0x47:
+		return configured, false
+	}
+	return configured, true
 }
 
 type trackingWriter struct {

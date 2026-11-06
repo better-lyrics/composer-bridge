@@ -30,7 +30,7 @@ func SetDenoBinDir(dir string) {
 // Why this matters: macOS apps launched by launchd (Finder, Dock, login
 // item) inherit a minimal PATH that omits /opt/homebrew/bin. yt-dlp's
 // youtube extractor needs an external JS engine (deno, node) to solve n-sig
-// challenges for the web_safari client. Without one on PATH, n-sig solve
+// challenges. Without one on PATH, n-sig solve
 // silently fails, the format URLs are unusable, and yt-dlp reports
 // "Requested format is not available" with zero formats extracted. Bundled
 // deno under <dataDir>/bin is the primary mechanism; the Homebrew dirs are a
@@ -47,6 +47,10 @@ func execEnv() []string {
 	return augmentPATH(os.Environ(), extras)
 }
 
+// envKeysCaseInsensitive matches os/exec, which treats env keys
+// case-insensitively on Windows, where the variable is usually "Path".
+var envKeysCaseInsensitive = runtime.GOOS == "windows"
+
 // augmentPATH returns env with extras prepended to PATH, preserving order and
 // skipping entries already present. Pure function; takes env explicitly so
 // tests don't have to mutate the process env. Empty extras returns env
@@ -57,12 +61,12 @@ func augmentPATH(env, extras []string) []string {
 	}
 	sep := string(os.PathListSeparator)
 	var path string
+	pathKey := "PATH"
 	pathIdx := -1
 	for i, kv := range env {
-		if p, ok := strings.CutPrefix(kv, "PATH="); ok {
-			path = p
-			pathIdx = i
-			break
+		key, value, ok := strings.Cut(kv, "=")
+		if ok && (key == "PATH" || envKeysCaseInsensitive && strings.EqualFold(key, "PATH")) {
+			path, pathKey, pathIdx = value, key, i
 		}
 	}
 	seen := make(map[string]bool, strings.Count(path, sep)+1)
@@ -89,7 +93,7 @@ func augmentPATH(env, extras []string) []string {
 	out := make([]string, len(env), len(env)+1)
 	copy(out, env)
 	if pathIdx >= 0 {
-		out[pathIdx] = "PATH=" + newPath
+		out[pathIdx] = pathKey + "=" + newPath
 		return out
 	}
 	return append(out, "PATH="+newPath)

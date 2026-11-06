@@ -3,9 +3,13 @@ package ytdlp
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
 // FormatSelector maps a user-facing format key (opus / m4a / webm / mp3) to the
@@ -14,10 +18,9 @@ import (
 // whatever audio (or audio+video) yt-dlp can produce. Unknown keys behave like
 // opus.
 //
-// The opus chain is the wide one because the bridge's player_client config
-// (web_music, android_vr, web_safari) frequently does not expose itag 251
-// (WebM-Opus); the only audio-bearing formats those clients return are HLS
-// m3u8 (MPEG-TS) plus a single non-HLS mp4 with bundled AAC. So:
+// The opus chain is the wide one because some YouTube player clients do not
+// expose itag 251 (WebM-Opus); the only audio-bearing formats they return are
+// HLS m3u8 (MPEG-TS) plus a single non-HLS mp4 with bundled AAC. So:
 //
 //  1. itag 251 if available (WebM-Opus, smallest playable)
 //  2. any audio-only WebM (covers itag 249/250 / opus-low)
@@ -62,7 +65,10 @@ func FormatExtension(format string) string {
 }
 
 // DownloadToFile runs yt-dlp to fetch audio for videoID using the chosen format
-// and writes it to destPath. Returns the resulting file size in bytes. Honors
+// and writes it to destPath. yt-dlp writes to a staging file next to destPath
+// that is renamed over destPath only on success: with --force-overwrites,
+// yt-dlp deletes an existing -o target before downloading, so pointing it at
+// destPath directly would lose the user's file whenever a re-download fails. Returns the resulting file size in bytes. Honors
 // ctx cancellation and rejects malformed video IDs before forking. An empty
 // cookiesPath omits the --cookies flag. When preferPremium is true, the
 // extractor-args chain tries YouTube Music's higher quality tier first.
@@ -70,10 +76,14 @@ func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath, c
 	if err := validateVideoID(videoID); err != nil {
 		return 0, err
 	}
+	staging, err := reserveStagingPath(destPath)
+	if err != nil {
+		return 0, err
+	}
+	defer removeStaging(staging)
 	args := []string{
 		"-f", FormatSelector(format),
-		"-o", destPath,
-		"--no-warnings",
+		"-o", staging,
 		"--no-playlist",
 		"--force-overwrites",
 		"--extractor-args", BuildExtractorArgs(preferPremium),
@@ -93,9 +103,37 @@ func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath, c
 	if err := cmd.Run(); err != nil {
 		return 0, fmt.Errorf("yt-dlp download %s: %w (stderr: %s)", videoID, err, stderrTail(&stderr))
 	}
+	if err := os.Rename(staging, destPath); err != nil {
+		return 0, fmt.Errorf("move downloaded file into place: %w", err)
+	}
 	stat, err := os.Stat(destPath)
 	if err != nil {
 		return 0, fmt.Errorf("stat downloaded file: %w", err)
 	}
 	return stat.Size(), nil
+}
+
+// reserveStagingPath creates a unique hidden file next to destPath for yt-dlp
+// to write into, so concurrent downloads of one track never share it. The
+// name keeps destPath's extension so yt-dlp's audio extraction, which rewrites
+// the extension, still lands on the same path.
+func reserveStagingPath(destPath string) (string, error) {
+	dir, base := filepath.Split(destPath)
+	ext := filepath.Ext(base)
+	f, err := os.CreateTemp(dir, "."+strings.TrimSuffix(base, ext)+".bridge-download-*"+ext)
+	if err != nil {
+		return "", fmt.Errorf("reserve download staging file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("reserve download staging file: %w", err)
+	}
+	return f.Name(), nil
+}
+
+func removeStaging(staging string) {
+	for _, p := range []string{staging, staging + ".part", staging + ".ytdl"} {
+		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("remove download staging file", "path", p, "err", err)
+		}
+	}
 }

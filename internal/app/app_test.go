@@ -1338,3 +1338,16 @@ func TestForceYtdlpUpdate_OffChannelReturnsError(t *testing.T) {
 		t.Errorf("error should explain the off channel; got %q", err)
 	}
 }
+
+// The banner and Settings both offer Install; two concurrent self-updates
+// would race on replacing the same binary.
+func TestInstallUpdate_RegressionRefusesWhileAnotherInstallRuns(t *testing.T) {
+	a, _, _, _ := newTestApp(t)
+	a.SetLatestUpdate(&updater.UpdateInfo{Available: true})
+	a.installingUpdate.Store(true)
+
+	err := a.InstallUpdate()
+	if err == nil || !strings.Contains(err.Error(), "already") {
+		t.Errorf("second install: got %v, want an already-installing error", err)
+	}
+}

@@ -47,7 +47,7 @@ func TestStartDownload_FlipsToDownloadingAndStoresVideoID(t *testing.T) {
 func TestEndDownload_ResetsToIdleAndClearsVideoID(t *testing.T) {
 	h := NewHolder()
 	h.StartDownload("vid")
-	h.EndDownload("")
+	h.EndDownload("vid", "")
 	s := h.Snapshot()
 	if s.Download != DownloadIdle {
 		t.Errorf("Download: got %q, want %q", s.Download, DownloadIdle)
@@ -63,10 +63,21 @@ func TestEndDownload_ResetsToIdleAndClearsVideoID(t *testing.T) {
 func TestEndDownload_WithErrorMessageStoresIt(t *testing.T) {
 	h := NewHolder()
 	h.StartDownload("vid")
-	h.EndDownload("yt-dlp exit 1")
+	h.EndDownload("vid", "yt-dlp exit 1")
 	s := h.Snapshot()
 	if s.LastError != "yt-dlp exit 1" {
 		t.Errorf("LastError: got %q, want yt-dlp exit 1", s.LastError)
+	}
+}
+
+func TestEndDownload_RegressionSuccessClearsPreviousError(t *testing.T) {
+	h := NewHolder()
+	h.StartDownload("bad")
+	h.EndDownload("bad", "yt-dlp exit 1")
+	h.StartDownload("good")
+	h.EndDownload("good", "")
+	if s := h.Snapshot(); s.LastError != "" {
+		t.Errorf("LastError after a successful download: got %q, want empty", s.LastError)
 	}
 }
 
@@ -171,8 +182,24 @@ func TestHolder_ConcurrentMutationsAreRaceFree(t *testing.T) {
 	}()
 	for i := 0; i < 100; i++ {
 		h.StartDownload("v")
-		h.EndDownload("")
+		h.EndDownload("v", "")
 		_ = h.Snapshot()
 	}
 	<-done
+}
+
+func TestEndDownload_RegressionOverlappingDownloadsStayActiveUntilTheLastEnds(t *testing.T) {
+	h := NewHolder()
+	h.StartDownload("first")
+	h.StartDownload("second")
+	h.EndDownload("first", "")
+
+	s := h.Snapshot()
+	if s.Download != DownloadActive || s.DownloadVideoID != "second" {
+		t.Fatalf("after one of two downloads ends: got %q %q, want active second", s.Download, s.DownloadVideoID)
+	}
+	h.EndDownload("second", "")
+	if s := h.Snapshot(); s.Download != DownloadIdle || s.DownloadVideoID != "" {
+		t.Errorf("after both end: got %q %q, want idle", s.Download, s.DownloadVideoID)
+	}
 }

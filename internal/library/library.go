@@ -79,6 +79,9 @@ func Open(path string) (*Library, error) {
 func (l *Library) Close() error { return l.db.Close() }
 
 // InsertTrack upserts the track keyed by VideoID. On success, t.ID is set to the persisted row id (stable across upserts).
+// An upsert refreshes metadata but keeps the row's local files (audio_path,
+// audio_size, thumb_path) when t leaves them empty, so re-importing a track
+// never unlinks a download; t is updated with the stored values.
 func (l *Library) InsertTrack(t *Track) error {
 	const stmt = `
 INSERT INTO tracks (video_id, title, artist, album, release_year, duration_sec, thumbnail_url, thumb_path, is_music, music_type, source_url, imported_at, audio_path, audio_size)
@@ -86,17 +89,19 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(video_id) DO UPDATE SET
   title=excluded.title, artist=excluded.artist, album=excluded.album,
   release_year=excluded.release_year, duration_sec=excluded.duration_sec,
-  thumbnail_url=excluded.thumbnail_url, thumb_path=excluded.thumb_path,
+  thumbnail_url=excluded.thumbnail_url,
+  thumb_path=CASE WHEN excluded.thumb_path != '' THEN excluded.thumb_path ELSE tracks.thumb_path END,
   is_music=excluded.is_music, music_type=excluded.music_type,
   source_url=excluded.source_url, imported_at=excluded.imported_at,
-  audio_path=excluded.audio_path, audio_size=excluded.audio_size
-RETURNING id;
+  audio_path=CASE WHEN excluded.audio_path != '' THEN excluded.audio_path ELSE tracks.audio_path END,
+  audio_size=CASE WHEN excluded.audio_path != '' THEN excluded.audio_size ELSE tracks.audio_size END
+RETURNING id, thumb_path, audio_path, audio_size;
 `
 	return l.db.QueryRow(stmt,
 		t.VideoID, t.Title, t.Artist, t.Album, t.ReleaseYear, t.DurationSec,
 		t.ThumbnailURL, t.ThumbPath, t.IsMusic, t.MusicType, t.SourceURL,
 		t.ImportedAt, t.AudioPath, t.AudioSize,
-	).Scan(&t.ID)
+	).Scan(&t.ID, &t.ThumbPath, &t.AudioPath, &t.AudioSize)
 }
 
 func scanTrack(s rowScanner, t *Track) error {

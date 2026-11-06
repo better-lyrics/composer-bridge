@@ -296,8 +296,8 @@ func TestAudio_ArgvRegressionFlags(t *testing.T) {
 	entry := env.lastActivity()
 	wantSubstrs := []string{
 		"-f", "bestaudio[acodec=opus][ext=webm]/bestaudio[ext=webm]/bestaudio[protocol!*=m3u8]/best[protocol!*=m3u8]/bestaudio/best",
-		"-o", "--quiet", "--no-warnings", "--no-playlist",
-		"--extractor-args", "youtube:player_client=android_vr,web_safari;player_skip=configs,initial_data",
+		"-o", "--quiet", "--no-playlist",
+		"--extractor-args", "youtube:player_skip=configs,initial_data",
 		"https://www.youtube.com/watch?v=RgKAFK5djSk",
 	}
 	for _, s := range wantSubstrs {
@@ -671,7 +671,8 @@ func TestAudio_XBridgeVersionUsesStructFieldNotConstant(t *testing.T) {
 }
 
 func TestAudio_YtdlpFailsAfterFirstByteClosesWithoutJSONError(t *testing.T) {
-	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'partial-audio-bytes'; exit 1`))
+	partial := strings.Repeat("partial-audio-bytes ", 20)
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf '`+partial+`'; exit 1`))
 
 	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
 	if err != nil {
@@ -683,8 +684,8 @@ func TestAudio_YtdlpFailsAfterFirstByteClosesWithoutJSONError(t *testing.T) {
 		t.Errorf("status: got %d, want 200 (already committed when bytes flowed)", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if string(body) != "partial-audio-bytes" {
-		t.Errorf("body: got %q, want %q (no JSON error suffix may be appended; would corrupt stream)", string(body), "partial-audio-bytes")
+	if string(body) != partial {
+		t.Errorf("body: got %q, want %q (no JSON error suffix may be appended; would corrupt stream)", string(body), partial)
 	}
 
 	entry := env.lastActivity()
@@ -925,7 +926,7 @@ func TestAudio_CacheHitContentTypeFromExtension(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.ext, func(t *testing.T) {
 			env := newTestEnv(t, "/nonexistent")
-			env.handlers.AudioFormat = "mp3" // intentionally wrong vs. on-disk
+			env.handlers.AudioFormat = func() string { return "mp3" } // intentionally wrong vs. on-disk
 			seedDownloadedTrack(t, env, "RgKAFK5djSk", tc.ext, []byte("cached"))
 
 			resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
@@ -1026,7 +1027,7 @@ func TestAudio_EmitterPublishesStartAndEnd(t *testing.T) {
 	env := newTestEnv(t, writeFakeYtdlp(t, `printf 'hello world'`))
 	rec := &recordingEmitter{}
 	env.handlers.Emitter = rec
-	env.handlers.EmitterCtx = context.Background()
+	env.handlers.EmitterCtx = context.Background
 	srv := httptest.NewServer(env.handlers.Router())
 	defer srv.Close()
 
@@ -1203,6 +1204,37 @@ func TestAudio_FailedDownloadRecordsLastErrorOnHolder(t *testing.T) {
 	}
 }
 
+func TestAudio_RegressionClientAbortDoesNotRecordLastError(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `head -c 200000 /dev/zero; sleep 5`))
+	holder := bridgestate.NewHolder()
+	env.handlers.State = holder
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, env.server.URL+"/audio/RgKAFK5djSk", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	buf := make([]byte, 1)
+	if _, err := io.ReadFull(resp.Body, buf); err != nil {
+		t.Fatalf("read first byte: %v", err)
+	}
+	cancel()
+	resp.Body.Close()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for holder.Snapshot().Download != bridgestate.DownloadIdle && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	snap := holder.Snapshot()
+	if snap.Download != bridgestate.DownloadIdle {
+		t.Fatalf("Download: got %q, want idle after client abort", snap.Download)
+	}
+	if snap.LastError != "" {
+		t.Errorf("LastError after client abort: got %q, want empty (a skip or seek is not a failure)", snap.LastError)
+	}
+}
+
 func TestAudio_NilHolderIsNoop(t *testing.T) {
 	// Regression: existing handlers tests construct Handlers without State.
 	// The handler must not panic when State is nil.
@@ -1312,7 +1344,7 @@ func seedTrackForAutoDL(t *testing.T, env *testEnv, videoID, title, format strin
 	dlDir := filepath.Join(t.TempDir(), "downloads")
 	env.handlers.DownloadDir = func() string { return dlDir }
 	env.handlers.AutoDownload = func() bool { return enabled }
-	env.handlers.AudioFormat = format
+	env.handlers.AudioFormat = func() string { return format }
 	seedTrack(t, env.lib, library.Track{
 		VideoID: videoID, Title: title, DurationSec: 10,
 		ThumbnailURL: "http://example.invalid/x.jpg",
@@ -1366,6 +1398,64 @@ func TestAudio_AutoDownload_TeeStreamWritesFileAndMarksLibrary(t *testing.T) {
 		if strings.HasSuffix(e.Name(), ".part") {
 			t.Errorf("temp .part file leaked: %s", e.Name())
 		}
+	}
+}
+
+// The stream path cannot transcode, and the opus selector can fall back to an
+// mp4 container, so the response type and saved extension must follow the
+// bytes yt-dlp actually produced, not the configured format.
+func TestAudio_RegressionLabelsAndSavesTheContainerYtdlpDelivered(t *testing.T) {
+	cases := []struct {
+		name, format, bytes, wantType, wantExt string
+	}{
+		{"mp3 setting gets webm bytes", "mp3", `\032\105\337\243webm-body`, "audio/webm", "webm"},
+		{"opus setting gets mp4 bytes", "opus", `\000\000\000\030ftypM4A mp4-body`, "audio/mp4", "m4a"},
+		{"opus setting gets webm bytes", "opus", `\032\105\337\243webm-body`, "audio/webm", "opus"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newTestEnv(t, writeFakeYtdlp(t, `printf '`+tc.bytes+`'`))
+			dlDir := seedTrackForAutoDL(t, env, "RgKAFK5djSk", "Hello World", tc.format, true)
+
+			resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			_, _ = io.ReadAll(resp.Body)
+			resp.Body.Close()
+
+			if got := resp.Header.Get("Content-Type"); got != tc.wantType {
+				t.Errorf("Content-Type: got %q, want %q", got, tc.wantType)
+			}
+			want := filepath.Join(dlDir, library.AudioFilename("Hello World", "RgKAFK5djSk", tc.wantExt))
+			got, err := env.lib.GetTrack("RgKAFK5djSk")
+			if err != nil {
+				t.Fatalf("GetTrack: %v", err)
+			}
+			if got.AudioPath != want {
+				t.Errorf("saved path: got %q, want %q", got.AudioPath, want)
+			}
+		})
+	}
+}
+
+func TestAudio_AutoDownload_MpegTSStreamIsNotSaved(t *testing.T) {
+	env := newTestEnv(t, writeFakeYtdlp(t, `printf '\107'; head -c 187 /dev/zero; printf '\107'; head -c 400 /dev/zero`))
+	seedTrackForAutoDL(t, env, "RgKAFK5djSk", "Hello World", "opus", true)
+
+	resp, err := http.Get(env.server.URL + "/audio/RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	_, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	got, err := env.lib.GetTrack("RgKAFK5djSk")
+	if err != nil {
+		t.Fatalf("GetTrack: %v", err)
+	}
+	if got.AudioPath != "" {
+		t.Errorf("MPEG-TS stream was saved to %q; no browser can play it from the cache", got.AudioPath)
 	}
 }
 
@@ -1485,7 +1575,7 @@ func TestAudio_AutoDownload_CollisionResolvedByVideoID(t *testing.T) {
 	dlDir := filepath.Join(t.TempDir(), "downloads")
 	env.handlers.DownloadDir = func() string { return dlDir }
 	env.handlers.AutoDownload = func() bool { return true }
-	env.handlers.AudioFormat = "opus"
+	env.handlers.AudioFormat = func() string { return "opus" }
 
 	const idA, idB = "RgKAFK5djSk", "dQw4w9WgXcQ"
 	for _, id := range []string{idA, idB} {

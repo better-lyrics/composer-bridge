@@ -79,6 +79,7 @@ type App struct {
 	statusEmitter         func(ctx context.Context, name string, data any)
 	unsubStatus           func()
 	quitting              atomic.Int32
+	installingUpdate      atomic.Bool
 	mu                    sync.RWMutex
 	cfg                   config.Config
 	downloadDir           string
@@ -129,7 +130,9 @@ func resolveDownloadDir(configured string) string {
 // window: the app launches as Accessory (LSUIElement) so there is no Dock-icon
 // flash during the brief window Wails's own AppDelegate forces Regular on us.
 func (a *App) Startup(ctx context.Context) {
+	a.mu.Lock()
 	a.ctx = ctx
+	a.mu.Unlock()
 	tray.DockShow()
 	if a.showWindow != nil {
 		a.showWindow(ctx)
@@ -151,10 +154,10 @@ func (a *App) Startup(ctx context.Context) {
 
 // repairBrokenAudio walks the library, finds tracks whose cached audio is the
 // old MPEG-TS-over-HLS file the pre-1.4.11 yt-dlp selector produced, and
-// re-downloads each one in place using the fixed selector. yt-dlp writes the
-// new bytes via its .part staging file then renames over the original path, so
-// readers (the cache-hit handler) never see a half-written file: they either
-// see the old (bad) bytes or the new (good) bytes. The serve path detects bad
+// re-downloads each one in place using the fixed selector. DownloadToFile
+// stages the new bytes next to the original and renames over it only on
+// success, so readers (the cache-hit handler) see either the old (bad) bytes or
+// the new (good) bytes, and a failed download leaves the original untouched. The serve path detects bad
 // bytes and falls through to streaming, so plays during the repair window
 // still work; once repair completes the cache-hit path serves the fresh copy.
 //
@@ -168,12 +171,7 @@ func (a *App) repairBrokenAudio(ctx context.Context) {
 		return
 	}
 	ytdlpPath := a.GetYtdlpPath()
-	a.mu.RLock()
-	format := a.cfg.AudioFormat
-	a.mu.RUnlock()
-	if format == "" {
-		format = "opus"
-	}
+	format := a.AudioFormat()
 	repaired := 0
 	for _, t := range tracks {
 		if ctx.Err() != nil {
@@ -224,6 +222,8 @@ func (a *App) Shutdown(_ context.Context) {
 // Ctx returns the Wails runtime context captured in Startup. May be nil before
 // Startup runs.
 func (a *App) Ctx() context.Context {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.ctx
 }
 
@@ -305,9 +305,15 @@ func (a *App) InstallUpdate() error {
 	if info == nil || !info.Available {
 		return errors.New("no update available")
 	}
+	// Stays set after success: the new process is already launched and this
+	// one is quitting, so a later click must not apply and relaunch again.
+	if !a.installingUpdate.CompareAndSwap(false, true) {
+		return errors.New("an update is already being installed")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), updateInstallTimeout)
 	defer cancel()
 	if err := updater.ApplyAndRelaunch(ctx, info.Asset); err != nil {
+		a.installingUpdate.Store(false)
 		return fmt.Errorf("apply update: %w", err)
 	}
 	a.MarkQuitting()
@@ -326,8 +332,8 @@ func (a *App) OnBeforeClose(_ context.Context) bool {
 	if a.quitting.Load() == 1 {
 		return false
 	}
-	if a.ctx != nil && a.hideWindow != nil {
-		a.hideWindow(a.ctx)
+	if ctx := a.Ctx(); ctx != nil && a.hideWindow != nil {
+		a.hideWindow(ctx)
 		tray.DockHide()
 	}
 	return true
@@ -599,6 +605,17 @@ func (a *App) SetStatusEmitter(emit func(ctx context.Context, name string, data 
 	a.mu.Unlock()
 }
 
+// AudioFormat is the live configured audio format, "opus" when unset. Read
+// per download so a Settings change applies without a restart.
+func (a *App) AudioFormat() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.cfg.AudioFormat == "" {
+		return "opus"
+	}
+	return a.cfg.AudioFormat
+}
+
 // AutoDownloadToLibrary reports whether /audio/{id} on a cache miss should
 // tee the yt-dlp stdout into a file under DownloadDir. Read on every request
 // so a Settings flip takes effect immediately.
@@ -672,11 +689,7 @@ func (a *App) UploadCookies(content string) error {
 	if err := ytdlp.SaveCookies(a.dataDir, content); err != nil {
 		return err
 	}
-	a.mu.Lock()
-	a.cfg.CookiesEnabled = true
-	cfgCopy := a.cfg
-	a.mu.Unlock()
-	if err := config.Save(a.cfgPath, cfgCopy); err != nil {
+	if err := a.updateConfig(func(c *config.Config) { c.CookiesEnabled = true }); err != nil {
 		return fmt.Errorf("persist cookies-enabled flag: %w", err)
 	}
 	return nil
@@ -688,34 +701,22 @@ func (a *App) RemoveCookies() error {
 	if err := ytdlp.RemoveCookies(a.dataDir); err != nil {
 		return err
 	}
-	a.mu.Lock()
-	a.cfg.CookiesEnabled = false
-	cfgCopy := a.cfg
-	a.mu.Unlock()
-	return config.Save(a.cfgPath, cfgCopy)
+	return a.updateConfig(func(c *config.Config) { c.CookiesEnabled = false })
 }
 
 // SetCookiesEnabled flips the bridge-side gate without touching the file
 // on disk. Lets the user keep their uploaded cookies but pause use, or
 // re-enable after a pause.
 func (a *App) SetCookiesEnabled(enabled bool) error {
-	a.mu.Lock()
-	a.cfg.CookiesEnabled = enabled
-	cfgCopy := a.cfg
-	a.mu.Unlock()
-	return config.Save(a.cfgPath, cfgCopy)
+	return a.updateConfig(func(c *config.Config) { c.CookiesEnabled = enabled })
 }
 
-// SetPreferPremiumAudio persists the opt-in flag that prepends web_music to
-// yt-dlp's player_client chain. The flag is harmless on its own; the gate at
+// SetPreferPremiumAudio persists the opt-in flag that adds web_music to
+// yt-dlp's default player clients. The flag is harmless on its own; the gate at
 // PreferPremiumAudio() ensures it has no runtime effect until cookies are
 // also present and enabled.
 func (a *App) SetPreferPremiumAudio(enabled bool) error {
-	a.mu.Lock()
-	a.cfg.PreferPremiumAudio = enabled
-	cfgCopy := a.cfg
-	a.mu.Unlock()
-	return config.Save(a.cfgPath, cfgCopy)
+	return a.updateConfig(func(c *config.Config) { c.PreferPremiumAudio = enabled })
 }
 
 // PreferPremiumAudio reports the effective state of the premium audio probe.
@@ -813,14 +814,18 @@ func (a *App) StopServer() error {
 }
 
 func (a *App) persistServerEnabled(enabled bool) {
-	a.mu.Lock()
-	a.cfg.ServerEnabled = enabled
-	cfg := a.cfg
-	path := a.cfgPath
-	a.mu.Unlock()
-	if err := config.Save(path, cfg); err != nil {
+	if err := a.updateConfig(func(c *config.Config) { c.ServerEnabled = enabled }); err != nil {
 		slog.Warn("persist server_enabled failed", "err", err)
 	}
+}
+
+// updateConfig applies mutate and writes the result while holding the lock,
+// so concurrent setters reach disk in the same order they changed memory.
+func (a *App) updateConfig(mutate func(*config.Config)) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	mutate(&a.cfg)
+	return config.Save(a.cfgPath, a.cfg)
 }
 
 // YtdlpVersion returns the cached yt-dlp version string, or "unknown".
@@ -884,7 +889,7 @@ func (a *App) ForceYtdlpUpdate() (string, error) {
 	if override != "" {
 		return "", fmt.Errorf("binary path override is set to %s; force update is disabled. Clear the override in Settings to use auto-updates", override)
 	}
-	ctx := a.ctx
+	ctx := a.Ctx()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -912,16 +917,13 @@ func (a *App) DownloadAudio(videoID string) (*library.Track, error) {
 	ytdlpPath := a.GetYtdlpPath()
 	a.mu.RLock()
 	downloadDir := a.downloadDir
-	format := a.cfg.AudioFormat
 	a.mu.RUnlock()
+	format := a.AudioFormat()
 	if downloadDir == "" {
 		return nil, fmt.Errorf("download directory is not configured")
 	}
 	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create download dir: %w", err)
-	}
-	if format == "" {
-		format = "opus"
 	}
 	ext := ytdlp.FormatExtension(format)
 	dest := filepath.Join(downloadDir, library.AudioFilename(track.Title, videoID, ext))
@@ -938,7 +940,21 @@ func (a *App) DownloadAudio(videoID string) (*library.Track, error) {
 		return nil, err
 	}
 	a.endActivity(actID, activity.StatusOK, "")
+	a.emitLibraryUpdate(videoID)
 	return a.library.GetTrack(videoID)
+}
+
+// emitLibraryUpdate sends the same library:update event the HTTP handlers
+// send, so every open library view refreshes after a download from the UI.
+func (a *App) emitLibraryUpdate(videoID string) {
+	a.mu.RLock()
+	emit := a.statusEmitter
+	ctx := a.ctx
+	a.mu.RUnlock()
+	if emit == nil || ctx == nil {
+		return
+	}
+	emit(ctx, "library:update", map[string]string{"video_id": videoID})
 }
 
 // OpenLogFile returns the absolute path to the bridge log file. The frontend

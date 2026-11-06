@@ -127,8 +127,9 @@ func main() {
 		AutoDownload:       a.AutoDownloadToLibrary,
 		ThumbDir:           filepath.Join(dataDir, "thumbs"),
 		Bridge:             Version,
-		AudioFormat:        cfg.AudioFormat,
+		AudioFormat:        a.AudioFormat,
 		State:              holder,
+		EmitterCtx:         a.Ctx,
 		Emitter: events.EmitterFunc(func(ctx context.Context, name string, args ...any) {
 			if ctx == nil {
 				return
@@ -179,6 +180,7 @@ func main() {
 		func() string { return a.GetConfig().YtdlpBinaryPath },
 		refreshYtdlpVersion,
 	)
+	go ytdlp.RefreshDenoDaily(bgCtx, dataDir)
 	go updater.PollDaily(bgCtx, manifestURL, Version, func(info updater.UpdateInfo) {
 		slog.Info("bridge update available", "version", info.Latest, "current", info.Current)
 		a.SetLatestUpdate(&info)
@@ -286,7 +288,6 @@ func main() {
 		},
 		OnStartup: func(ctx context.Context) {
 			a.Startup(ctx)
-			handlers.EmitterCtx = ctx
 			trayCtrl.BindContext(ctx)
 			trayCtrl.OnQuit(a.MarkQuitting)
 			trayCtrl.Start()
