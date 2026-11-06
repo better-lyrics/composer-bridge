@@ -51,6 +51,7 @@ type Controller struct {
 	state             *bridgestate.Holder
 	unsubState        func()
 	pulseRunning      atomic.Bool
+	renderMu          sync.Mutex
 }
 
 // pulseInterval is the cadence of the downloading-state pulse: long enough
@@ -268,19 +269,14 @@ func (c *Controller) onReady() {
 		applyState(mState, mServer, snap)
 		setUpdateRowLabel(mUpdate, snap)
 		c.maybeStartPulse(snap, isMac)
-		unsub := holder.OnChange(func(s bridgestate.State) {
+		unsub := holder.OnChange(func(bridgestate.State) {
 			// systray's SetTitle/Check/SetTemplateIcon internally call
 			// performSelectorOnMainThread:waitUntilDone:YES. If this
 			// callback fires from the main thread (e.g. inside a click
 			// handler) the main thread tries to dispatch to itself and
 			// deadlocks/crashes during AppKit menu tracking. Run the
 			// mutation in a goroutine so we are not on main.
-			go func() {
-				applyState(mState, mServer, s)
-				setUpdateRowLabel(mUpdate, s)
-				applyTrayIcon(s, isMac)
-				c.maybeStartPulse(s, isMac)
-			}()
+			go c.render(holder, mState, mServer, mUpdate, isMac)
 		})
 		c.mu.Lock()
 		c.unsubState = unsub
@@ -292,6 +288,19 @@ func (c *Controller) onReady() {
 	// (the library's ShowMenu only works inside the OnRClick callback on macOS).
 	systray.SetOnClick(func(_ systray.IMenu) { go c.showWindow() })
 	systray.SetOnRClick(func(m systray.IMenu) { _ = m.ShowMenu() })
+}
+
+// render draws the holder's latest state rather than the snapshot that
+// triggered it: change callbacks run in separate goroutines, so an older
+// snapshot could otherwise be drawn last and leave a stale title or icon.
+func (c *Controller) render(holder *bridgestate.Holder, mState, mServer, mUpdate *systray.MenuItem, isMac bool) {
+	c.renderMu.Lock()
+	defer c.renderMu.Unlock()
+	s := holder.Snapshot()
+	applyState(mState, mServer, s)
+	setUpdateRowLabel(mUpdate, s)
+	applyTrayIcon(s, isMac)
+	c.maybeStartPulse(s, isMac)
 }
 
 func (c *Controller) populateRecentSubmenu(parent *systray.MenuItem) {
@@ -456,12 +465,15 @@ func (c *Controller) runPulse(isMac bool) {
 		if holder == nil {
 			return
 		}
+		c.renderMu.Lock()
 		s := holder.Snapshot()
 		if !isPulseState(s) {
 			applyTrayIcon(s, isMac)
+			c.renderMu.Unlock()
 			return
 		}
 		setDownloadingFrame(dim, isMac)
+		c.renderMu.Unlock()
 		dim = !dim
 	}
 }
