@@ -151,10 +151,10 @@ func (a *App) Startup(ctx context.Context) {
 
 // repairBrokenAudio walks the library, finds tracks whose cached audio is the
 // old MPEG-TS-over-HLS file the pre-1.4.11 yt-dlp selector produced, and
-// re-downloads each one in place using the fixed selector. yt-dlp writes the
-// new bytes via its .part staging file then renames over the original path, so
-// readers (the cache-hit handler) never see a half-written file: they either
-// see the old (bad) bytes or the new (good) bytes. The serve path detects bad
+// re-downloads each one in place using the fixed selector. DownloadToFile
+// stages the new bytes next to the original and renames over it only on
+// success, so readers (the cache-hit handler) see either the old (bad) bytes or
+// the new (good) bytes, and a failed download leaves the original untouched. The serve path detects bad
 // bytes and falls through to streaming, so plays during the repair window
 // still work; once repair completes the cache-hit path serves the fresh copy.
 //

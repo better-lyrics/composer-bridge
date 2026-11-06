@@ -100,7 +100,7 @@ func TestDownloadToFile_ChildEnvHasDenoBinDir(t *testing.T) {
 	// DownloadToFile stats dest after Run; the script must touch it so the
 	// stat succeeds and we observe the PATH log.
 	script := writeFakeYtdlp(t, `printf "%s" "$PATH" > "`+logFile+`"
-touch "`+dest+`"`)
+`+touchOutputArg)
 	if _, err := DownloadToFile(context.Background(), script, "ZEcqHA7dbwM", "opus", dest, "", false); err != nil {
 		t.Fatalf("DownloadToFile: %v", err)
 	}

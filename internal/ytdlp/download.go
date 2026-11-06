@@ -3,9 +3,13 @@ package ytdlp
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
 // FormatSelector maps a user-facing format key (opus / m4a / webm / mp3) to the
@@ -61,7 +65,10 @@ func FormatExtension(format string) string {
 }
 
 // DownloadToFile runs yt-dlp to fetch audio for videoID using the chosen format
-// and writes it to destPath. Returns the resulting file size in bytes. Honors
+// and writes it to destPath. yt-dlp writes to a staging file next to destPath
+// that is renamed over destPath only on success: with --force-overwrites,
+// yt-dlp deletes an existing -o target before downloading, so pointing it at
+// destPath directly would lose the user's file whenever a re-download fails. Returns the resulting file size in bytes. Honors
 // ctx cancellation and rejects malformed video IDs before forking. An empty
 // cookiesPath omits the --cookies flag. When preferPremium is true, the
 // extractor-args chain tries YouTube Music's higher quality tier first.
@@ -69,9 +76,11 @@ func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath, c
 	if err := validateVideoID(videoID); err != nil {
 		return 0, err
 	}
+	staging := stagingPath(destPath)
+	defer removeStaging(staging)
 	args := []string{
 		"-f", FormatSelector(format),
-		"-o", destPath,
+		"-o", staging,
 		"--no-playlist",
 		"--force-overwrites",
 		"--extractor-args", BuildExtractorArgs(preferPremium),
@@ -91,9 +100,28 @@ func DownloadToFile(ctx context.Context, ytdlpPath, videoID, format, destPath, c
 	if err := cmd.Run(); err != nil {
 		return 0, fmt.Errorf("yt-dlp download %s: %w (stderr: %s)", videoID, err, stderrTail(&stderr))
 	}
+	if err := os.Rename(staging, destPath); err != nil {
+		return 0, fmt.Errorf("move downloaded file into place: %w", err)
+	}
 	stat, err := os.Stat(destPath)
 	if err != nil {
 		return 0, fmt.Errorf("stat downloaded file: %w", err)
 	}
 	return stat.Size(), nil
+}
+
+// stagingPath keeps destPath's extension so yt-dlp's audio extraction, which
+// rewrites the extension, still lands on the same path.
+func stagingPath(destPath string) string {
+	dir, base := filepath.Split(destPath)
+	ext := filepath.Ext(base)
+	return filepath.Join(dir, "."+strings.TrimSuffix(base, ext)+".bridge-download"+ext)
+}
+
+func removeStaging(staging string) {
+	for _, p := range []string{staging, staging + ".part", staging + ".ytdl"} {
+		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("remove download staging file", "path", p, "err", err)
+		}
+	}
 }
