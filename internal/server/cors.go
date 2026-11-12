@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 )
@@ -10,7 +11,9 @@ import (
 // request so changes to the underlying list (e.g. SaveConfig appending a new
 // origin) take effect on the next request without restarting the server.
 // Origins are matched exactly after trimming any trailing slash, except entries of
-// the form scheme://*.host[:port], which match any subdomain of host. Requests without
+// the form scheme://*.host[:port], which match any subdomain of host, and loopback
+// entries without a port ("localhost", "http://127.0.0.1"), which match that host on
+// any port, over http or https unless the entry names a scheme. Requests without
 // an Origin header pass through untouched (server-to-server calls, curl). Requests
 // with a non-allowed Origin still get Vary: Origin so caches don't poison cross-origin
 // responses, but never receive Access-Control-Allow-Origin. OPTIONS preflights from
@@ -58,11 +61,31 @@ func originAllowed(origin string, allowed []string) bool {
 		}
 	}
 	for _, o := range allowed {
-		if matchOrigin(normalizeOrigin(o), target) {
+		o = normalizeOrigin(o)
+		if matchOrigin(o, target) || matchLoopback(o, target) {
 			return true
 		}
 	}
 	return false
+}
+
+func matchLoopback(pattern, origin string) bool {
+	if !strings.Contains(pattern, "://") {
+		pattern = "//" + pattern
+	}
+	p, err := url.Parse(pattern)
+	if err != nil || p.Port() != "" || p.Path != "" {
+		return false
+	}
+	host := strings.ToLower(p.Hostname())
+	if host != "localhost" && host != "127.0.0.1" {
+		return false
+	}
+	o, err := url.Parse(origin)
+	if err != nil || (o.Scheme != "http" && o.Scheme != "https") || strings.ToLower(o.Hostname()) != host {
+		return false
+	}
+	return p.Scheme == "" || strings.EqualFold(p.Scheme, o.Scheme)
 }
 
 // matchOrigin requires at least two non-empty labels after "*." so a pattern like

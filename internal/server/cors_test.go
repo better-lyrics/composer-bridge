@@ -272,3 +272,32 @@ func TestOriginAllowed_SubdomainWildcard(t *testing.T) {
 		}
 	}
 }
+
+func TestOriginAllowed_LoopbackEntryMatchesAnyPort(t *testing.T) {
+	cases := []struct {
+		allowed []string
+		origin  string
+		want    bool
+	}{
+		{[]string{"localhost"}, "http://localhost:3000", true},
+		{[]string{"localhost"}, "https://localhost:8443", true},
+		{[]string{"LOCALHOST"}, "http://localhost/", true},
+		{[]string{"127.0.0.1"}, "http://127.0.0.1:61234", true},
+		{[]string{"http://localhost"}, "http://localhost:5173", true},
+
+		{[]string{"localhost"}, "http://127.0.0.1:3000", false},
+		{[]string{"127.0.0.1"}, "http://localhost:3000", false},
+
+		{[]string{"http://localhost"}, "https://localhost:5173", false},
+		{[]string{"http://localhost:5173"}, "http://localhost:5174", false},
+		{[]string{"localhost"}, "http://localhost.evil.com:3000", false},
+		{[]string{"localhost"}, "http://evil.localhost:3000", false},
+		{[]string{"localhost"}, "ftp://localhost:21", false},
+		{[]string{"https://composer.boidu.dev"}, "http://localhost:3000", false},
+	}
+	for _, c := range cases {
+		if got := originAllowed(c.origin, c.allowed); got != c.want {
+			t.Errorf("originAllowed(%q, %q) = %v, want %v", c.origin, c.allowed, got, c.want)
+		}
+	}
+}
