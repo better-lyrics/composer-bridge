@@ -1,6 +1,6 @@
 ---
 name: composer-lyrics
-description: Work on the lyrics open in Composer through its `composer` MCP server - fix lyric text, write transliterations (romanization) and translations, and resolve the Languages tab's "lines need review" transliteration alignment warnings. Use when the user asks to fix lyrics, transliterate, romanize, translate, or align/fix transliteration boundaries in Composer, or when the composer MCP tools are missing or fail to connect.
+description: Work on the lyrics open in Composer through its `composer` MCP server - fix lyric text and language, write transliterations (romanization) and translations, and resolve the Languages tab's "lines need review" transliteration alignment warnings. Use when the user asks to fix lyrics, transliterate, romanize, translate, or align/fix transliteration boundaries in Composer, or when the composer MCP tools are missing or fail to connect.
 ---
 
 # Composer lyrics
@@ -24,7 +24,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:7777/mcp \
 ## Workflow
 
 1. `list_projects`. With more than one project open, pass `projectId` on every call.
-2. `get_project` for the song language and issue counts, then `get_lines` with `withIssues: true` (follow `nextOffset`).
+2. `get_project` for the song language and issue counts, then `get_lines` with `withIssues: true` (follow `nextOffset`). If the language is missing or wrong for what is sung, fix it with `set_project_language` first: auto-align and default transliteration tags read it. It is not an undo step, so say what it was.
 3. Wrong lyrics (typos, wrong kanji, syllable splits that don't match how it's sung): `edit_lines`, written like `get_lines` text, with spaces between words and `splitCharacter` (usually `|`) between syllables. Matching syllables keep their timing; new ones get timing Composer spreads, so mention that the user may want to re-sync them. Then redo the affected lines' transliteration and translations.
 4. Missing or `transliteration-source-changed`: `set_transliterations`. Write the reading as sung, with two spaces between words of the original and one space inside a word: `Mizu tamari ni  ashi o  tsukkonde`. Send 20 to 50 lines per call.
 5. `transliteration-alignment-needs-review`, `transliteration-does-not-fit-syllables` or `transliteration-syllables-unmapped`: `align_transliteration` with one slice per syllable, in order. The slices must spell the reading; spaces and dashes don't matter.
