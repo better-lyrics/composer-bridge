@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 )
 
 // supportedProtocolVersions lists the MCP revisions this server speaks, newest
@@ -77,8 +79,12 @@ func (m *MCP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		m.notifications(w, r)
+		return
+	}
 	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
+		w.Header().Set("Allow", "GET, POST")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -122,6 +128,54 @@ func (m *MCP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, responses[0])
+}
+
+var toolsChangedNotification = []byte(`{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}`)
+
+// notifications is the transport's optional server-to-client stream. Its only
+// message is tools/list_changed: a client that connected before any Composer
+// tab sees just list_projects, and lists again once a tab advertises its tools.
+func (m *MCP) notifications(w http.ResponseWriter, r *http.Request) {
+	changes, stop := m.Hub.WatchTools()
+	defer stop()
+
+	rc := http.NewResponseController(w)
+	if err := rc.SetReadDeadline(time.Time{}); err != nil {
+		slog.Debug("mcp stream read deadline", "err", err)
+	}
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+		slog.Debug("mcp stream write deadline", "err", err)
+	}
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	if err := rc.Flush(); err != nil {
+		return
+	}
+
+	keepAlive := time.NewTicker(keepAliveInterval)
+	defer keepAlive.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case _, open := <-changes:
+			if !open {
+				return
+			}
+			if _, err := fmt.Fprintf(w, "event: message\ndata: %s\n\n", toolsChangedNotification); err != nil {
+				return
+			}
+		case <-keepAlive.C:
+			if _, err := fmt.Fprint(w, ": keep-alive\n\n"); err != nil {
+				return
+			}
+		}
+		if err := rc.Flush(); err != nil {
+			return
+		}
+	}
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -168,7 +222,7 @@ func (m *MCP) initialize(params json.RawMessage) any {
 	}
 	return map[string]any{
 		"protocolVersion": version,
-		"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
+		"capabilities":    map[string]any{"tools": map[string]any{"listChanged": true}},
 		"serverInfo":      map[string]any{"name": "composer", "title": "Composer", "version": m.Version},
 		"instructions":    serverInstructions,
 	}

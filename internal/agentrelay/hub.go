@@ -96,6 +96,9 @@ type Hub struct {
 	callSeq     uint64
 	now         func() time.Time
 	CallTimeout time.Duration
+	// toolWatchers are MCP clients' notification streams, told when the tool
+	// list a tab advertises changes so they can list tools again.
+	toolWatchers map[chan struct{}]struct{}
 }
 
 // NewHub returns a Hub that remembers the last advertised tool list in
@@ -103,10 +106,11 @@ type Hub struct {
 // Composer's tools. An empty cachePath disables the cache.
 func NewHub(cachePath string) *Hub {
 	h := &Hub{
-		sessions:    map[string]*Session{},
-		cachePath:   cachePath,
-		now:         time.Now,
-		CallTimeout: DefaultCallTimeout,
+		sessions:     map[string]*Session{},
+		cachePath:    cachePath,
+		now:          time.Now,
+		CallTimeout:  DefaultCallTimeout,
+		toolWatchers: map[chan struct{}]struct{}{},
 	}
 	if cachePath != "" {
 		if data, err := os.ReadFile(cachePath); err == nil && json.Valid(data) {
@@ -161,13 +165,31 @@ func (h *Hub) closeLocked(s *Session) {
 	close(s.done)
 }
 
-// CloseAll disconnects every tab, so their streams end and the HTTP server
-// can shut down.
+// CloseAll disconnects every tab and ends every tool watch, so their streams
+// end and the HTTP server can shut down. The hub stays usable afterwards.
 func (h *Hub) CloseAll() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, s := range h.sessions {
 		h.closeLocked(s)
+	}
+	for ch := range h.toolWatchers {
+		close(ch)
+		delete(h.toolWatchers, ch)
+	}
+}
+
+// WatchTools returns a channel that receives a value whenever the advertised
+// tool list changes, and is closed by CloseAll. Call stop when done.
+func (h *Hub) WatchTools() (changes <-chan struct{}, stop func()) {
+	ch := make(chan struct{}, 1)
+	h.mu.Lock()
+	h.toolWatchers[ch] = struct{}{}
+	h.mu.Unlock()
+	return ch, func() {
+		h.mu.Lock()
+		delete(h.toolWatchers, ch)
+		h.mu.Unlock()
 	}
 }
 
@@ -195,6 +217,12 @@ func (h *Hub) UpdateState(id, token string, st State) error {
 	if len(st.Tools) > 0 && json.Valid(st.Tools) && string(st.Tools) != string(h.tools) {
 		h.tools = append(json.RawMessage(nil), st.Tools...)
 		write = h.tools
+		for ch := range h.toolWatchers {
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
+		}
 	}
 	h.mu.Unlock()
 	if write != nil {

@@ -229,3 +229,26 @@ func TestInitializeNegotiatesTheClientsVersion(t *testing.T) {
 		t.Fatalf("notifications get 202, got %v %v", resp.StatusCode, err)
 	}
 }
+
+func TestClientsConnectedBeforeComposerHearThatToolsChanged(t *testing.T) {
+	srv := newTestServer(t, NewHub(""))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/mcp", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("notification stream: %v %v", resp, err)
+	}
+	defer resp.Body.Close()
+
+	connectTab(t, srv, "a", true)
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		if strings.Contains(scanner.Text(), "notifications/tools/list_changed") {
+			return
+		}
+	}
+	t.Fatalf("no tools/list_changed before the stream ended: %v", scanner.Err())
+}
