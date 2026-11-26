@@ -30,6 +30,21 @@ Grab the installer from the [latest release page](https://github.com/better-lyri
 
 The Library view shows every track you've fetched, with thumbnails, a search box, and inline download / open-in-Composer buttons. The Activity view is the live log of yt-dlp imports and downloads, which is handy when something fails and you want the raw stderr.
 
+## Use with AI agents (MCP)
+
+The bridge also serves an [MCP](https://modelcontextprotocol.io) endpoint at `http://localhost:7777/mcp`, so Claude Code, Codex and other MCP clients can work on the lyrics open in Composer: write transliterations and translations, and fix the transliteration alignment warnings in the Languages tab.
+
+1. In Composer, open Advanced settings and turn on "Let AI agents edit through Composer Bridge".
+2. Add the server to your agent:
+   - Claude Code: `claude mcp add --transport http composer http://localhost:7777/mcp`
+   - Codex, in `~/.codex/config.toml`:
+     ```toml
+     [mcp_servers.composer]
+     url = "http://localhost:7777/mcp"
+     ```
+
+The bridge only relays. Every tool runs inside the Composer tab, and every change is one undo step there. With several projects open in different tabs, the agent picks one with `list_projects`. The endpoint refuses requests from web pages (any `Origin` header) and from non-loopback hosts.
+
 ## Troubleshooting
 
 **Bridge not detected by Composer.** Check the Composer Bridge URL field in Composer's Advanced settings. The default is `http://localhost:7777`. If something else was on 7777 already, the bridge falls back to a random free port and writes the chosen port to `~/.composer-bridge/port.txt`. Paste `http://localhost:<that port>` into Composer.

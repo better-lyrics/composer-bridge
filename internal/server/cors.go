@@ -53,6 +53,11 @@ var firstPartyOrigins = []string{
 	"https://composer.betterlyrics.org",
 }
 
+// OriginAllowed reports whether origin passes the same policy WithCORS applies,
+// for endpoints that must refuse other origins outright rather than only
+// withhold CORS headers.
+func OriginAllowed(origin string, allowed []string) bool { return originAllowed(origin, allowed) }
+
 func originAllowed(origin string, allowed []string) bool {
 	target := normalizeOrigin(origin)
 	for _, o := range firstPartyOrigins {
