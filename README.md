@@ -36,12 +36,13 @@ The bridge also serves an [MCP](https://modelcontextprotocol.io) endpoint at `ht
 
 1. In Composer, open Advanced settings and turn on "Let AI agents edit through Composer Bridge".
 2. Add the server to your agent:
-   - Claude Code: `claude mcp add --transport http composer http://localhost:7777/mcp`
+   - Claude Code: `claude mcp add --scope user --transport http composer http://localhost:7777/mcp`
    - Codex, in `~/.codex/config.toml`:
      ```toml
      [mcp_servers.composer]
      url = "http://localhost:7777/mcp"
      ```
+3. Optionally, install the `composer-lyrics` skill, which teaches the agent the workflow and how to split a reading across timed syllables: `npx skills add better-lyrics/composer-bridge@composer-lyrics -g`
 
 The bridge only relays. Every tool runs inside the Composer tab, and every change is one undo step there. With several projects open in different tabs, the agent picks one with `list_projects`. The endpoint refuses requests from web pages (any `Origin` header) and from non-loopback hosts.
 
