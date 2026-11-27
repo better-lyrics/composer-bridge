@@ -33,7 +33,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:7777/mcp \
 
 ## Slicing a reading across syllables
 
-Each slice is what is sung during that slot's original text. Read the `syllables` from `get_lines`: their `transliteration` is the split Composer shows, saved or estimated. Keep the parts that are right.
+Each slice is what is sung during that slot's original text. Read the `syllables` from `get_lines`: their `transliteration` is the split Composer shows. When the line's `transliteration.split` is `estimated`, that split is Composer's guess, even without a warning: check it, and send `align_transliteration` only for lines it got wrong or the user wants confirmed.
 
 - `水溜りに|足を|突っ込ん|で` + `Mizu tamari ni  ashi o  tsukkonde` -> `["Mizu tamari ni", "ashi o", "tsukkon", "de"]`
 - `貴方|は|大きな|あ|く|び|をする` + `Anata wa ookina akubi o suru` -> `["Anata", "wa", "ookina", "a", "ku", "bi", "o suru"]`
