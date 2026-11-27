@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/better-lyrics/composer-bridge/internal/activity"
+	"github.com/better-lyrics/composer-bridge/internal/agentrelay"
 	"github.com/better-lyrics/composer-bridge/internal/app"
 	"github.com/better-lyrics/composer-bridge/internal/autostart"
 	"github.com/better-lyrics/composer-bridge/internal/bridge"
@@ -138,14 +139,27 @@ func main() {
 		}),
 	}
 
+	allowedOrigins := func() []string { return a.GetConfig().AllowedOrigins }
+	agentHub := agentrelay.NewHub(filepath.Join(dataDir, "agent-tools.json"))
 	br := bridge.New(holder, func() *http.Server {
-		return &http.Server{
-			Handler:           server.WithCORS(handlers.Router(), func() []string { return a.GetConfig().AllowedOrigins }),
+		mux := http.NewServeMux()
+		mux.Handle("/", handlers.Router())
+		mux.Handle("/mcp", &agentrelay.MCP{Hub: agentHub, Version: Version})
+		tabs := &agentrelay.TabHandlers{
+			Hub:           agentHub,
+			AllowedOrigin: func(origin string) bool { return server.OriginAllowed(origin, allowedOrigins()) },
+		}
+		tabs.Register(mux)
+		srv := &http.Server{
+			Handler:           server.WithCORS(mux, allowedOrigins),
 			ReadHeaderTimeout: 10 * time.Second,
 			ReadTimeout:       30 * time.Second,
 			WriteTimeout:      10 * time.Minute,
 			IdleTimeout:       60 * time.Second,
 		}
+		// Composer tabs hold their event streams open; end them so Stop doesn't wait out its grace period.
+		srv.RegisterOnShutdown(agentHub.CloseAll)
+		return srv
 	})
 
 	if cfg.ServerEnabled {
